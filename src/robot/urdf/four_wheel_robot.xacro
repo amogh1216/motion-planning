@@ -1,0 +1,54 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://ros.org/wiki/xacro" name="four_wheel_robot">
+
+<!-- USEFUL CONSTANTS -->
+<!-- size = x y z -->
+<xacro:property name="robot_size" value="0.5 0.3 0.1"/>
+<xacro:property name="robot_mass" value="5.0"/>
+<xacro:property name="wheel_x" value="0.18"/>
+<xacro:property name="wheel_y" value="0.13"/>
+<xacro:property name="wheel_z" value="-0.05"/>
+<xacro:property name="origin" value="0 0 0"/>
+
+  <link name="world"/>
+
+  <link name="base_link">
+    <visual>
+      <geometry>
+        <box size="${robot_size}"/>
+      </geometry>
+      <material name="teal">
+        <color rgba="0 1 1 1"/>
+      </material>
+    </visual>
+    <collision>
+      <geometry>
+        <box size="${robot_size}"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="${robot_mass}"/>
+      <origin xyz="${origin}" rpy="${origin}"/>
+      <inertia
+        ixx="0.1" ixy="0.0" ixz="0.0"
+        iyy="0.1" iyz="0.0"
+        izz="0.1"/>
+    </inertial>
+  </link>
+
+  <!-- Include the wheel macro -->
+  <xacro:include filename="wheel.xacro"/>
+
+  <!-- Instantiate wheels -->
+  <xacro:wheel name="wheel_fl" parent_link="base_link" xyz="${wheel_x} ${wheel_y} ${wheel_z}"/>
+  <xacro:wheel name="wheel_fr" parent_link="base_link" xyz="${wheel_x} ${-wheel_y} ${wheel_z}"/>
+  <xacro:wheel name="wheel_rl" parent_link="base_link" xyz="${-wheel_x} ${wheel_y} ${wheel_z}"/>
+  <xacro:wheel name="wheel_rr" parent_link="base_link" xyz="${-wheel_x} ${-wheel_y} ${wheel_z}"/>
+
+  <joint name="base_to_world" type="fixed">
+    <parent link="world"/>
+    <child link="base_link"/>
+    <origin rpy="${origin}" xyz="${origin}"/>
+  </joint>
+
+</robot>
