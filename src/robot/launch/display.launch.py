@@ -13,7 +13,7 @@ def generate_launch_description():
     config_file = 'robot-config.rviz'
     rviz_config_path = PathJoinSubstitution([FindPackageShare(pkg_name), 'config', config_file])
 
-    urdf_file = 'four_wheel_robot.xacro'
+    urdf_file = '_4w_bot.xacro'
 
     # Build the full path to the URDF file
     urdf_path = PathJoinSubstitution([FindPackageShare('robot'), 'urdf', urdf_file])
