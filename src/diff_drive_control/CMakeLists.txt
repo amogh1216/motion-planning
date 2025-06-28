@@ -10,9 +10,21 @@ find_package(ament_cmake REQUIRED)
 # uncomment the following section in order to fill in
 # further dependencies manually.
 # find_package(<dependency> REQUIRED)
-
-find_package(rclcpp REQUIRED)
+find_package(control_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(rclcpp REQUIRED)
+find_package(rclcpp_action REQUIRED)
+find_package(std_msgs REQUIRED)
+
+# find_package(rclcpp REQUIRED)
+# find_package(geometry_msgs REQUIRED)
+
+install(DIRECTORY
+  launch
+  urdf
+  config
+  DESTINATION share/${PROJECT_NAME}
+)
 
 add_executable(diff_drive_publisher src/diff_drive_publisher.cpp)
 target_include_directories(diff_drive_publisher PUBLIC

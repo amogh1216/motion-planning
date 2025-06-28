@@ -9,7 +9,7 @@ class DiffDrivePublisher : public rclcpp::Node
         DiffDrivePublisher() : Node("diff_drive_publisher")
         {
             publisher_ = this->create_publisher<geometry_msgs::msg::TwistStamped>(
-                "/diff_drive_base_controller/cmd_vel", 10);
+                "/rwd_diff_controller/cmd_vel", 10);
 
             timer_ = this->create_wall_timer(
                 50ms, std::bind(&DiffDrivePublisher::publishCommand, this));
@@ -18,10 +18,11 @@ class DiffDrivePublisher : public rclcpp::Node
     private:
         void publishCommand()
         {
+            // circular motion
             geometry_msgs::msg::TwistStamped command;
             command.header.stamp = this->now();
             command.twist.linear.x=0.1;
-            command.twist.angular.z=0.1;
+            command.twist.angular.z=1;
             publisher_->publish(command);
         }
 
