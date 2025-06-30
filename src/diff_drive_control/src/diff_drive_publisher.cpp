@@ -21,8 +21,8 @@ class DiffDrivePublisher : public rclcpp::Node
             // circular motion
             geometry_msgs::msg::TwistStamped command;
             command.header.stamp = this->now();
-            command.twist.linear.x=0.1;
-            command.twist.angular.z=1;
+            command.twist.linear.x=0.3;
+            command.twist.angular.z=0.5;
             publisher_->publish(command);
         }
 
