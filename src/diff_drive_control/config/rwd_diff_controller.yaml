@@ -17,9 +17,9 @@ rwd_diff_controller:
     left_wheel_names: ["joint_wheel_rl"]
     right_wheel_names: ["joint_wheel_rr"]
 
-    wheel_separation: 0.26
+    wheel_separation: 2.6 #0.26
     wheels_per_side: 1
-    wheel_radius: 0.05
+    wheel_radius: 0.5 #0.5
 
     wheel_separation_multiplier: 1.0
     left_wheel_radius_multiplier: 1.0
