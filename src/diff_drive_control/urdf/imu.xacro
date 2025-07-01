@@ -21,7 +21,6 @@
             <geometry>
                 <box size="0.02 0.02 0.02"/>
             </geometry>
-            <material name="Gazebo/Red"/>
         </visual>
         <inertial>
             <mass value="0.001" />
@@ -36,19 +35,7 @@
             <always_on>1</always_on>
             <update_rate>1000</update_rate>
             <visualize>1</visualize>
-            <topic>imu_data</topic>
-            <!-- <plugin name='imu_plugin' filename='libgazebo_ros_imu_sensor.so'>
-                <topicName>imu_data</topicName>
-                <bodyName>imu_sensor_link</bodyName>
-                <updateRateHZ>10.0</updateRateHZ>
-                <gaussianNoise>0.0</gaussianNoise>
-                <xyzOffset>0 0 0</xyzOffset>
-                <rpyOffset>0 0 0</rpyOffset>
-            </plugin>
-            <pose>0 0 0 0 0 0</pose> -->
-            <!-- <ros>
-                <namespace>diff_drive_control</namespace>
-            </ros> -->
+            <topic>imu</topic>
             <plugin
                 filename="gz-sim-imu-system"
                 name="gz::sim::systems::Imu">

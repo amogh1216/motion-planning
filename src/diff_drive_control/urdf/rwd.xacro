@@ -32,13 +32,6 @@
         iyy="0.1" iyz="0.0"
         izz="0.1"/>
     </inertial>
-
-    <!-- <sensor name="imu_sensor" type="imu">
-      <always_on>1</always_on>
-      <update_rate>1</update_rate>
-      <visualize>true</visualize>
-      <topic>imu</topic>
-    </sensor> -->
   </link>
 
   <!-- Include the wheel macro -->
@@ -73,6 +66,14 @@
         <state_interface name="position"/>
         <state_interface name="velocity"/>
     </joint>
+    <joint name="joint_wheel_fl">
+        <state_interface name="position"/>
+        <state_interface name="velocity"/>
+    </joint>
+    <joint name="joint_wheel_fr">
+        <state_interface name="position"/>
+        <state_interface name="velocity"/>
+    </joint>
   </ros2_control>
 
   <gazebo>
@@ -80,18 +81,6 @@
     <plugin filename="gz_ros2_control-system" name="gz_ros2_control::GazeboSimROS2ControlPlugin">
         <parameters>$(find diff_drive_control)/config/rwd_diff_controller.yaml</parameters>
     </plugin>
-    <!-- <plugin
-        filename="gz-sim-imu-system"
-        name="gz::sim::systems::Imu">
-
-        <bodyName>base_link</bodyName>
-        <updateRate>100.0</updateRate>
-        <topicName>imu_data</topicName>
-        <serviceName>imu_service</serviceName>
-        <gaussianNoise>0.1</gaussianNoise>
-        <xyzOffset>0 0 0</xyzOffset>
-        <rpyOffset>0 0 0</rpyOffset>
-    </plugin> -->
   </gazebo>
 
   <gazebo reference="wheel_fl">

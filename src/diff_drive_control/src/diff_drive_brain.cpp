@@ -28,7 +28,7 @@ public:
 
         // Create IMU subscriber
         imu_subscriber_ = this->create_subscription<sensor_msgs::msg::Imu>(
-            "/imu_data", 10, 
+            "/imu", 10, 
             std::bind(&DiffDriveBrain::imuCallback, this, std::placeholders::_1));
 
         // Create Odom subscriber
