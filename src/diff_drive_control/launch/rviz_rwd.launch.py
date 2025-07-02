@@ -42,7 +42,7 @@ def generate_launch_description():
     world_file_name = LaunchConfiguration("world_file")
     gz_models_path = ":".join([pkg_share, os.path.join(pkg_share, "urdf")])
     #gz_models_path = os.path.join(pkg_share, "models")
-    world_path = PathJoinSubstitution([pkg_share, "urdf", "my_world.sdf"])
+    world_path = PathJoinSubstitution([pkg_share, "config", "my_world.sdf"])
 
     robot_state_publisher_node = Node(
         package="robot_state_publisher",

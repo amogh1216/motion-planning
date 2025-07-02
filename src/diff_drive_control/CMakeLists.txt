@@ -31,14 +31,37 @@ install(DIRECTORY
 )
 
 add_executable(diff_drive_brain src/diff_drive_brain.cpp)
+add_executable(localization_node src/localization.cpp)
+
 target_include_directories(diff_drive_brain PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>)
 target_compile_features(diff_drive_brain PUBLIC c_std_99 cxx_std_17)  # Require C99 and C++17
 
-ament_target_dependencies(diff_drive_brain rclcpp geometry_msgs sensor_msgs nav_msgs tf2 tf2_msgs)
+target_include_directories(localization_node PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>)
+target_compile_features(localization_node PUBLIC c_std_99 cxx_std_17)  # Require C99 and C++17
 
-install(TARGETS diff_drive_brain
+ament_target_dependencies(diff_drive_brain  
+  rclcpp 
+  geometry_msgs 
+  sensor_msgs 
+  nav_msgs 
+  tf2 
+  tf2_msgs
+)
+
+ament_target_dependencies(localization_node  
+  rclcpp 
+  geometry_msgs 
+  sensor_msgs 
+  nav_msgs 
+  tf2 
+  tf2_msgs
+)
+
+install(TARGETS diff_drive_brain localization_node
   DESTINATION lib/${PROJECT_NAME})
 
 if(BUILD_TESTING)
