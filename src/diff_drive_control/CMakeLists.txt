@@ -18,6 +18,7 @@ find_package(rclcpp_action REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(tf2 REQUIRED)
+find_package(tf2_msgs REQUIRED)
 
 # find_package(rclcpp REQUIRED)
 # find_package(geometry_msgs REQUIRED)
@@ -35,7 +36,7 @@ target_include_directories(diff_drive_brain PUBLIC
   $<INSTALL_INTERFACE:include>)
 target_compile_features(diff_drive_brain PUBLIC c_std_99 cxx_std_17)  # Require C99 and C++17
 
-ament_target_dependencies(diff_drive_brain rclcpp geometry_msgs sensor_msgs nav_msgs tf2)
+ament_target_dependencies(diff_drive_brain rclcpp geometry_msgs sensor_msgs nav_msgs tf2 tf2_msgs)
 
 install(TARGETS diff_drive_brain
   DESTINATION lib/${PROJECT_NAME})

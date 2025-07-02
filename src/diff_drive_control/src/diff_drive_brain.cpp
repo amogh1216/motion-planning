@@ -1,9 +1,12 @@
 #include <rclcpp/rclcpp.hpp>
 #include <geometry_msgs/msg/twist_stamped.hpp>
+#include <geometry_msgs/msg/pose.hpp>
+#include <tf2_msgs/msg/tf_message.hpp>
 #include <sensor_msgs/msg/imu.hpp>
 #include <nav_msgs/msg/odometry.hpp>
 #include <tf2/LinearMath/Quaternion.h>
 #include <tf2/LinearMath/Matrix3x3.h>
+
 #include <chrono>
 #include <cmath>
 
@@ -20,6 +23,7 @@ public:
         imu_heading_ = 0.0;
         velocity_x_ = 0.0;
         velocity_y_ = 0.0;
+        heading_ = 0.0;
         last_time_ = this->now();
 
         // Create publisher for velocity commands
@@ -36,12 +40,46 @@ public:
             "/rwd_diff_controller/odom", 10,
             std::bind(&DiffDriveBrain::odomCallback, this, std::placeholders::_1));
 
+        gazebo_pose_subscriber_ = this->create_subscription<tf2_msgs::msg::TFMessage>(
+            "/world/my_world/pose/info", 10,
+            std::bind(&DiffDriveBrain::tfCallback, this, std::placeholders::_1));
+
+
         // Timer for publishing commands
         timer_ = this->create_wall_timer(
             50ms, std::bind(&DiffDriveBrain::publishCommand, this));
     }
 
 private:
+
+    void tfCallback(const tf2_msgs::msg::TFMessage::SharedPtr msg)
+    {
+        for (const auto& transform : msg->transforms) {
+            if (transform.child_frame_id == "rwd_bot") {
+                
+                double x = transform.transform.translation.x;
+                double y = transform.transform.translation.y;
+                double z = transform.transform.translation.z;
+                
+                const auto& rot = transform.transform.rotation;
+                tf2::Quaternion q(rot.x, rot.y, rot.z, rot.w);
+                double roll, pitch, yaw;
+                tf2::Matrix3x3(q).getRPY(roll, pitch, yaw);
+                // RCLCPP_INFO(this->get_logger(),
+                //     "rwd_bot TF: x=%.2f, y=%.2f, z=%.2f, heading(yaw)=%.2f rad",
+                //     x, y, z, yaw);
+                
+                rwd_bot_pose_.position.x = x;
+                rwd_bot_pose_.position.y = y;
+                rwd_bot_pose_.position.z = z;
+                rwd_bot_pose_.orientation = rot;
+                heading_ = yaw;
+                break;
+            }
+        }
+    }
+
+
     void imuCallback(const sensor_msgs::msg::Imu::SharedPtr msg)
     {
         // Calculate time difference
@@ -65,9 +103,6 @@ private:
         imu_position_x_ += velocity_x_ * dt;
         imu_position_y_ += velocity_y_ * dt;
 
-        // imu_position_y seems to be negative
-        // imu_position_y_ *= -1;
-
         // Extract heading from orientation quaternion
         tf2::Quaternion q(
             msg->orientation.x,
@@ -78,10 +113,6 @@ private:
         double roll, pitch, yaw;
         m.getRPY(roll, pitch, yaw);
         imu_heading_ = yaw;
-
-        // Log IMU-based position and heading
-        // RCLCPP_INFO(this->get_logger(), "IMU Position: (%.2f, %.2f), Heading: %.2f rad", 
-        //             imu_position_x_, imu_position_y_, imu_heading_);
     }
 
     void odomCallback(const nav_msgs::msg::Odometry::SharedPtr msg)
@@ -89,6 +120,7 @@ private:
         // Extract position
         double odom_x = msg->pose.pose.position.x;
         double odom_y = msg->pose.pose.position.y;
+        double odom_z = msg->pose.pose.position.z;
         
         // Extract orientation and convert to heading
         tf2::Quaternion q(
@@ -101,14 +133,18 @@ private:
         m.getRPY(roll, pitch, yaw);
         
         // Log odometry-based position and heading
-        RCLCPP_INFO(this->get_logger(), "ODOM Position: (%.2f, %.2f), Heading: %.2f rad", 
-                    odom_x, odom_y, yaw);
+        RCLCPP_INFO(this->get_logger(), "ODOM Position: (%.2f, %.2f, %.2f), Heading: %.2f rad", 
+                    odom_x, odom_y, odom_z, yaw);
+
+        RCLCPP_INFO(this->get_logger(),
+                    "rwd_bot TF: x=%.2f, y=%.2f, z=%.2f, heading(yaw)=%.2f rad",
+                    rwd_bot_pose_.position.x, rwd_bot_pose_.position.y, rwd_bot_pose_.position.z, heading_);
         
         // Compare with IMU reconstruction
-        RCLCPP_INFO(this->get_logger(), "Position Error: X: %.2fm, Y: %.2fm | Heading Error: %.2f rad",
-                    imu_position_x_ - odom_x,
-                    imu_position_y_ - odom_y,
-                    imu_heading_ - yaw);
+        // RCLCPP_INFO(this->get_logger(), "Position Error: X: %.2fm, Y: %.2fm | Heading Error: %.2f rad",
+        //             imu_position_x_ - odom_x,
+        //             imu_position_y_ - odom_y,
+        //             imu_heading_ - yaw);
 
         RCLCPP_INFO(this->get_logger(), "IMU Position: (%.2f, %.2f), Heading: %.2f rad", 
                     imu_position_x_, imu_position_y_, imu_heading_);
@@ -121,7 +157,7 @@ private:
         command.header.stamp = this->now();
         command.header.frame_id = "base_link";
         command.twist.linear.x = 0.05;
-        command.twist.angular.z = 0;
+        command.twist.angular.z = 0.03;
         publisher_->publish(command);
     }
 
@@ -129,6 +165,8 @@ private:
     rclcpp::Publisher<geometry_msgs::msg::TwistStamped>::SharedPtr publisher_;
     rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr imu_subscriber_;
     rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_subscriber_;
+    rclcpp::Subscription<tf2_msgs::msg::TFMessage>::SharedPtr gazebo_pose_subscriber_;
+
     rclcpp::TimerBase::SharedPtr timer_;
 
     // State variables for IMU reconstruction
@@ -138,6 +176,10 @@ private:
     double imu_heading_;
     double velocity_x_;
     double velocity_y_;
+    // true robot pose
+    geometry_msgs::msg::Pose rwd_bot_pose_;
+    double heading_;
+
 };
 
 int main(int argc, char *argv[]){
