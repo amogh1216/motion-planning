@@ -60,6 +60,7 @@ private:
                 // Extract position and orientation
                 
                 pose_msg.header = transform.header;
+                pose_msg.header.stamp = this->now();
                 pose_msg.pose.position.x = transform.transform.translation.x;
                 pose_msg.pose.position.y = transform.transform.translation.y;
                 pose_msg.pose.position.z = transform.transform.translation.z;
@@ -139,12 +140,6 @@ private:
         // Log odometry-based position and heading
         RCLCPP_INFO(this->get_logger(), "ODOM Position: (%.2f, %.2f, %.2f), Heading: %.2f rad", 
                     odom_x, odom_y, odom_z, yaw);
-        
-        // Compare with IMU reconstruction
-        // RCLCPP_INFO(this->get_logger(), "Position Error: X: %.2fm, Y: %.2fm | Heading Error: %.2f rad",
-        //             imu_position_x_ - odom_x,
-        //             imu_position_y_ - odom_y,
-        //             imu_heading_ - yaw);
 
         RCLCPP_INFO(this->get_logger(), "IMU Position: (%.2f, %.2f), Heading: %.2f rad", 
                     imu_position_x_, imu_position_y_, imu_heading_);
