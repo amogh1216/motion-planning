@@ -158,6 +158,21 @@ def generate_launch_description():
         ],
     )
 
+    localization = Node (
+        package='diff_drive_control',
+        executable='localization_node',
+    )
+
+    diff_drive_brain = Node (
+        package='diff_drive_control',
+        executable='diff_drive_brain',
+        arguments=[
+            'rwd_pid',
+            '--param-file',
+            robot_controllers
+        ]
+    )
+
     return launch.LaunchDescription(
         [
             SetEnvironmentVariable(
@@ -219,6 +234,8 @@ def generate_launch_description():
             diff_drive_base_controller_spawner,
             #robot_localization_node,
             rviz_node,
-            joint_state_broadcaster_spawner
+            #localization,
+            joint_state_broadcaster_spawner,
+            #diff_drive_brain
         ] + gazebo
     )

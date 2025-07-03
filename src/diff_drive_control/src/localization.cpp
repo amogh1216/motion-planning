@@ -24,13 +24,7 @@ public:
     {
 
         // Initialize position and velocity
-        imu_position_x_ = 0.0;
-        imu_position_y_ = 0.0;
-        imu_heading_ = 0.0;
-        velocity_x_ = 0.0;
-        velocity_y_ = 0.0;
-        heading_ = 0.0;
-        last_time_ = this->now();
+        reset();
 
         // Publisher for the current pose
         pose_pub_ = this->
@@ -53,6 +47,18 @@ public:
     }
 
 private:
+
+    void reset()
+    {
+        imu_position_x_ = 0.0;
+        imu_position_y_ = 0.0;
+        imu_heading_ = 0.0;
+        velocity_x_ = 0.0;
+        velocity_y_ = 0.0;
+        heading_ = 0.0;
+        last_time_ = this->now();
+    }
+
     void tfCallback(const tf2_msgs::msg::TFMessage::SharedPtr msg)
     {
         for (const auto& transform : msg->transforms) {
