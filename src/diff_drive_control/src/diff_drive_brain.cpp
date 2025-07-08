@@ -18,16 +18,18 @@ public:
     DiffDriveBrain() : Node("diff_drive_brain")
     {
 
-        curr_x_ = 0.0; curr_y_ = 0.0; heading_ = 0.0;
+        curr_x_ = 0.0; curr_y_ = 0.0; heading_ = 0.0, rel_heading_ = 0.0; rel_heading_offset_ = 0.0;
         prev_x_ = 0.0; prev_y_ = 0.0; prev_heading_ = 0.0;
         x_err_integral_ = 0.0; y_err_integral_ = 0.0; heading_err_integral_ = 0.0;
         goal_x_ = 0.0; goal_y_ = 0.0; goal_heading_ = 0.0;
+
+        flipped = false;
 
         // Declare parameters
         this->declare_parameter<float>("p", 0.7);
         this->declare_parameter<float>("i", 0.0);
         this->declare_parameter<float>("d", 0.0);
-        this->declare_parameter<float>("p_head", 0.2);
+        this->declare_parameter<float>("p_head", 0.5);
         this->declare_parameter<float>("i_head", 0.0);
         this->declare_parameter<float>("d_head", 0.0);
 
@@ -80,6 +82,7 @@ private:
 
         prev_heading_ = heading_;
         heading_ = yaw;
+        rel_heading_ = heading_- rel_heading_offset_;
     }
 
     void goalPoseCallback(const geometry_msgs::msg::PoseStamped::SharedPtr msg)
@@ -98,6 +101,10 @@ private:
         tf2::Matrix3x3(q).getRPY(roll, pitch, yaw);
 
         goal_heading_ = yaw;
+
+        goal_heading_ = std::atan2(goal_y_ - curr_y_, goal_x_ - curr_x_);
+        rel_heading_ = 0.0;
+        rel_heading_offset_ = heading_;
     }
 
     void publishControllerCommand()
@@ -113,16 +120,17 @@ private:
         float x_err_ = goal_x_ - curr_x_;
         float y_err_ = goal_y_ - curr_y_;
 
-        double desired_heading = std::atan2(y_err_, x_err_);
-        double heading_err_ = desired_heading - heading_;
-        
-        // if (heading_err_ > 3.14) heading_err_ -= (2.0 * 3.14);
-        // else if (heading_err_ < -3.14) heading_err_ += (2.0 * 3.14);
+        double heading_err_ = goal_heading_ - heading_;
+
+        if (heading_err_ > M_PI) heading_err_ -= (2.0 * M_PI);
+        else if (heading_err_ < -M_PI) heading_err_ += (2.0 * M_PI);
 
         x_err_integral_ += x_err_ * dt;
         y_err_integral_ += y_err_ * dt;
         heading_err_integral_ += heading_err_ * dt;
 
+        float mult_x_ = 1;
+        float mult_y_ = 1;
 
         // Maintain circular motion command
         geometry_msgs::msg::TwistStamped command;
@@ -131,17 +139,40 @@ private:
 
         // PID controller
         if (std::isnan(command.twist.linear.x)) command.twist.linear.x = 0.0;
-        else command.twist.linear.x = (k_p * x_err_)  + (k_i * x_err_integral_) + (k_d * (curr_x_ - prev_x_) / dt);
+        else {
+            float pid_x_ = (k_p * x_err_)  + (k_i * x_err_integral_) + (k_d * (curr_x_ - prev_x_) / dt);
+            if (heading_err_ > M_PI/2 && heading_err_ < M_PI*1.5) pid_x_ = -abs(pid_x_);
+            else pid_x_ = abs(pid_x_);
+            command.twist.linear.x = pid_x_;
+        }
 
         if (std::isnan(command.twist.linear.y)) command.twist.linear.y = 0.0;
-        else command.twist.linear.y = (k_p * y_err_) + (k_i * y_err_integral_) + (k_d * (curr_y_ - prev_y_) / dt);
+        else {
+            float pid_y_ = (k_p * y_err_) + (k_i * y_err_integral_) + (k_d * (curr_y_ - prev_y_) / dt);
+            if (heading_err_ > M_PI/2 && heading_err_ < M_PI*1.5) pid_y_ = -abs(pid_y_);
+            else pid_y_ = abs(pid_y_);
+            command.twist.linear.y = pid_y_;
+        }
 
         if (std::isnan(command.twist.angular.z)) command.twist.angular.z = 0.0;
         else command.twist.angular.z = (k_p_head_ * heading_err_) + (k_i_head_ * heading_err_integral_) + (k_d_head_ * (heading_ - prev_heading_) / dt);
 
+        float dist = (goal_x_ - curr_x_) * (goal_x_ - curr_x_) + (goal_y_ - curr_y_) * (goal_y_ - curr_y_);
+
+        if (abs(heading_err_) < 0.04 && dist > 1)
+        {
+            // recalculate heading to move to final destination
+            goal_heading_ = std::atan2(goal_y_ - curr_y_, goal_x_ - curr_x_);
+            // approx
+            // float combined_err_ = x_err_ + y_err_;
+            // command.twist.linear.x = (k_p * combined_err_)  + (k_i * combined_err_) + (k_d * (combined_err_) / dt);
+        }
+
+        
+
         RCLCPP_INFO(this->get_logger(),
-                    "Curr (%.2f, %.2f, %0.3f), Goal (%.2f, %.2f, %0.3f)",
-                    curr_x_, curr_y_, heading_, goal_x_, goal_y_, goal_heading_);
+                    "Curr (%.2f, %.2f, %0.3f), Goal (%.2f, %.2f, %0.3f) Dist^2: %0.5f",
+                    curr_x_, curr_y_, heading_, goal_x_, goal_y_, goal_heading_, dist);
 
         RCLCPP_INFO(this->get_logger(),
                     "Publishing linear velocity: (x=%.2f, y=%.2f), angular vel=%.2f",
@@ -156,10 +187,11 @@ private:
     rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr goal_pose_sub_;
     rclcpp::TimerBase::SharedPtr timer_;
 
-    double curr_x_, curr_y_, heading_;
+    double curr_x_, curr_y_, heading_, rel_heading_, rel_heading_offset_;
     double prev_x_, prev_y_, prev_heading_;
     double x_err_integral_, y_err_integral_, heading_err_integral_;
     double goal_x_, goal_y_, goal_heading_;
+    bool flipped;
     rclcpp::Time prev_time_;
 
     float k_p, k_i, k_d, k_p_head_, k_i_head_, k_d_head_;
