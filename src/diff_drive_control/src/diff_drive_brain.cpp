@@ -22,13 +22,15 @@ public:
         prev_x_ = 0.0; prev_y_ = 0.0; prev_heading_ = 0.0;
         x_err_integral_ = 0.0; y_err_integral_ = 0.0; heading_err_integral_ = 0.0;
         goal_x_ = 0.0; goal_y_ = 0.0; goal_heading_ = 0.0;
+        moved = false;
+        init_dist_ = 0.0; init_x_ = 0.0; init_y_ = 0.0;
 
         // Declare parameters
-        this->declare_parameter<float>("p", 0.7);
+        this->declare_parameter<float>("p", 0.5);
         this->declare_parameter<float>("i", 0.0);
         this->declare_parameter<float>("d", 0.0);
         this->declare_parameter<float>("p_head", 0.2);
-        this->declare_parameter<float>("i_head", 0.0);
+        this->declare_parameter<float>("i_head", 0.00);
         this->declare_parameter<float>("d_head", 0.0);
 
         // Get parameters
@@ -56,7 +58,7 @@ public:
 
         // Timer for publishing commands
         timer_ = this->create_wall_timer(
-            50ms, std::bind(&DiffDriveBrain::publishControllerCommand, this));
+            50ms, std::bind(&DiffDriveBrain::plan, this));
     }
 
 private:
@@ -97,57 +99,75 @@ private:
         double roll, pitch, yaw;
         tf2::Matrix3x3(q).getRPY(roll, pitch, yaw);
 
-        goal_heading_ = yaw;
+        // goal_heading_ = yaw;
+        // note the following is relative heading from curr point to goal point
+        goal_heading_ = std::atan2(goal_y_ - curr_y_, goal_x_ - curr_x_);
+
+        init_dist_ = sqrt(((goal_x_ - curr_x_) * (goal_x_ - curr_x_)) + ((goal_y_ - curr_y_) * (goal_y_ - curr_y_)));
+        init_x_ = curr_x_; init_y_ = curr_y_;
     }
 
-    void publishControllerCommand()
+    void plan()
     {
-
         // Calculate time difference
         rclcpp::Time current_time = this->now();
         double dt = current_time.seconds() - prev_time_.seconds();
         prev_time_ = current_time;
-
-        if (dt <= 0.0) dt = 0.001;
-
-        float x_err_ = goal_x_ - curr_x_;
-        float y_err_ = goal_y_ - curr_y_;
-
-        double desired_heading = std::atan2(y_err_, x_err_);
-        double heading_err_ = desired_heading - heading_;
         
-        // if (heading_err_ > 3.14) heading_err_ -= (2.0 * 3.14);
-        // else if (heading_err_ < -3.14) heading_err_ += (2.0 * 3.14);
+        if (dt <= 0) dt = 0.001;
 
-        x_err_integral_ += x_err_ * dt;
-        y_err_integral_ += y_err_ * dt;
-        heading_err_integral_ += heading_err_ * dt;
-
-
-        // Maintain circular motion command
         geometry_msgs::msg::TwistStamped command;
-        command.header.stamp = this->now();
+        command.header.stamp = current_time;
         command.header.frame_id = "base_link";
 
-        // PID controller
-        if (std::isnan(command.twist.linear.x)) command.twist.linear.x = 0.0;
-        else command.twist.linear.x = (k_p * x_err_)  + (k_i * x_err_integral_) + (k_d * (curr_x_ - prev_x_) / dt);
+        // turn
+        float x_err_ = goal_x_ - curr_x_;
+        float y_err_ = goal_y_ - curr_y_;
+        float dist = sqrt((x_err_ * x_err_) + (y_err_ * y_err_));
+        float dist_traveled = sqrt(((curr_x_ - init_x_) * (curr_x_ - init_x_)) + ((curr_y_ - init_y_) * (curr_y_ - init_y_)));
 
-        if (std::isnan(command.twist.linear.y)) command.twist.linear.y = 0.0;
-        else command.twist.linear.y = (k_p * y_err_) + (k_i * y_err_integral_) + (k_d * (curr_y_ - prev_y_) / dt);
+        x_err_integral_ += dist * dt;
 
-        if (std::isnan(command.twist.angular.z)) command.twist.angular.z = 0.0;
-        else command.twist.angular.z = (k_p_head_ * heading_err_) + (k_i_head_ * heading_err_integral_) + (k_d_head_ * (heading_ - prev_heading_) / dt);
+        //double desired_heading = std::atan2(y_err_, x_err_);
+        double heading_err_ = goal_heading_ - heading_;
+        if (heading_err_ > M_PI) heading_err_ -= 2 * M_PI;
+        else if (heading_err_ < -M_PI) heading_err_ += 2 * M_PI;
+
+        heading_err_integral_ += heading_err_ * dt;
+
+        if (abs(goal_heading_ - heading_) > 0.07) {
+            command.twist.angular.z = (k_p_head_ * heading_err_) + (k_i_head_ * heading_err_integral_) + (k_d_head_ * (heading_ - prev_heading_) / dt);
+            RCLCPP_INFO(this->get_logger(),"TURNING");
+        }
+        // move
+        else {
+            
+            float prev_dist = sqrt(((goal_x_ - prev_x_) * (goal_x_ - prev_x_)) + ((goal_y_ - prev_y_) * (goal_y_ - prev_y_)));
+
+            // bot will always move forward immediately after turning
+            if (dist_traveled > init_dist_) {
+                RCLCPP_INFO(this->get_logger(),"BACKWARD");
+                command.twist.linear.x = (k_p * -dist) + (k_d * (dist - prev_dist) / dt) + (k_i * x_err_integral_);
+            }
+            else {
+                RCLCPP_INFO(this->get_logger(),"FORWARD");
+                command.twist.linear.x = (k_p * dist) + (k_d * (dist - prev_dist) / dt);
+                moved = true;
+            }
+            command.twist.linear.y = 0;
+            command.twist.angular.z = (k_p_head_ * heading_err_) + (k_i_head_ * heading_err_integral_) + (k_d_head_ * (heading_ - prev_heading_) / dt);
+        }
 
         RCLCPP_INFO(this->get_logger(),
-                    "Curr (%.2f, %.2f, %0.3f), Goal (%.2f, %.2f, %0.3f)",
-                    curr_x_, curr_y_, heading_, goal_x_, goal_y_, goal_heading_);
+                    "Curr (%.2f, %.2f, %0.3f), Goal (%.2f, %.2f, %0.3f) dist: %0.5f",
+                    curr_x_, curr_y_, heading_, goal_x_, goal_y_, goal_heading_, dist);
 
         RCLCPP_INFO(this->get_logger(),
                     "Publishing linear velocity: (x=%.2f, y=%.2f), angular vel=%.2f",
-                    k_p * x_err_, k_p * y_err_, k_p * heading_err_);
+                    command.twist.linear.x, command.twist.linear.y, command.twist.angular.z);
 
         publisher_->publish(command);
+
     }
 
     // Node components
@@ -160,6 +180,8 @@ private:
     double prev_x_, prev_y_, prev_heading_;
     double x_err_integral_, y_err_integral_, heading_err_integral_;
     double goal_x_, goal_y_, goal_heading_;
+    bool moved;
+    double init_dist_, init_x_, init_y_;
     rclcpp::Time prev_time_;
 
     float k_p, k_i, k_d, k_p_head_, k_i_head_, k_d_head_;
