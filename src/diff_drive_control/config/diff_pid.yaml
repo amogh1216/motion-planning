@@ -1,0 +1,17 @@
+/diff_drive_brain:
+  ros__parameters:
+    d: 0.0
+    d_head: 0.05
+    i: 0.02
+    i_head: 0.0
+    p: 0.7
+    p_head: 0.15
+    qos_overrides:
+      /parameter_events:
+        publisher:
+          depth: 1000
+          durability: volatile
+          history: keep_last
+          reliability: reliable
+    use_sim_time: false
+

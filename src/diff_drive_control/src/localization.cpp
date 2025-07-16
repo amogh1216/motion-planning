@@ -17,6 +17,8 @@
  * I also have the absolute position of the robot based on gazebo that I receive f
  */
 
+bool GAZEBO_FDBACK = true;
+
 class LocalizationNode : public rclcpp::Node
 {
 public:
@@ -62,7 +64,7 @@ private:
     void tfCallback(const tf2_msgs::msg::TFMessage::SharedPtr msg)
     {
         for (const auto& transform : msg->transforms) {
-            if (transform.child_frame_id == "rwd_bot") {
+            if (transform.child_frame_id == "rwd_bot" && GAZEBO_FDBACK) {
                 // Extract position and orientation
                 
                 pose_msg.header = transform.header;
@@ -142,19 +144,32 @@ private:
         tf2::Matrix3x3 m(q);
         double roll, pitch, yaw;
         m.getRPY(roll, pitch, yaw);
+        heading_ = yaw;
+
+        // Extract position and orientation
+                
+        if (!GAZEBO_FDBACK) {
+            pose_msg.header.stamp = this->now();
+            pose_msg.pose.position.x = odom_x;
+            pose_msg.pose.position.y = odom_y;
+            pose_msg.pose.position.z = odom_z;
+            pose_msg.pose.orientation = msg->pose.pose.orientation;
+
+            // Publish the pose
+            pose_pub_->publish(pose_msg);
+        }
         
         // Log odometry-based position and heading
         RCLCPP_INFO(this->get_logger(), "ODOM Position: (%.2f, %.2f, %.2f), Heading: %.2f rad", 
                     odom_x, odom_y, odom_z, yaw);
 
-        RCLCPP_INFO(this->get_logger(), "IMU Position: (%.2f, %.2f), Heading: %.2f rad", 
-                    imu_position_x_, imu_position_y_, imu_heading_);
+        // RCLCPP_INFO(this->get_logger(), "IMU Position: (%.2f, %.2f), Heading: %.2f rad", 
+        //             imu_position_x_, imu_position_y_, imu_heading_);
 
         RCLCPP_INFO(this->get_logger(),
                     "Publishing pose: x=%.2f, y=%.2f, z=%.2f, heading(yaw)=%.2f rad",
                     pose_msg.pose.position.x, pose_msg.pose.position.y, pose_msg.pose.position.z, yaw);
     }
-
     
     rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr pose_pub_;
 
