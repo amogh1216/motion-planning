@@ -7,9 +7,11 @@
 #include <tf2/LinearMath/Quaternion.h>
 #include <tf2/LinearMath/Matrix3x3.h>
 #include "diff_pid.cpp"
+#include "diff_mp.cpp"
 
 #include <chrono>
 #include <cmath>
+#include <queue>
 
 using namespace std::chrono_literals;
 
@@ -21,6 +23,9 @@ public:
 
         curr_x_ = 0.0; curr_y_ = 0.0; heading_ = 0.0;
         goal_x_ = 0.0; goal_y_ = 0.0; goal_heading_ = 0.0;
+
+        curr_profile = nullptr;
+        is_turning_ = false;
 
         // Declare parameters (backup)
         this->declare_parameter<float>("p", 0.5);
@@ -51,7 +56,7 @@ public:
 
         // Timer for publishing commands
         timer_ = this->create_wall_timer(
-            50ms, std::bind(&DiffDriveBrain::plan, this));
+            50ms, std::bind(&DiffDriveBrain::motionProfile, this));
     }
 
 private:
@@ -105,9 +110,85 @@ private:
         // note the following is relative heading from curr point to goal point
         goal_heading_ = std::atan2(goal_y_ - curr_y_, goal_x_ - curr_x_);
         pid.setTarget(goal_x_, goal_y_);
+
+        TrapezoidalMotionProfile turn_profile(M_PI, M_PI, true);
+        turn_profile.initialize(goal_heading_ - heading_);
+        motion_profiles_.push(turn_profile);
+
+        TrapezoidalMotionProfile forward_profile(3, 1, false);
+        motion_profiles_.push(forward_profile);
+
+
     }
 
-    void plan()
+    void motionProfile()
+    {
+
+        geometry_msgs::msg::TwistStamped command;
+        command.header.stamp = this->now();
+        command.header.frame_id = "base_link";
+
+        // mp in progress
+        if (curr_profile != nullptr)
+        {
+            profile_elapsed_time = this->now().seconds() - profile_start_time_.seconds();
+
+            // move to next profile
+            if (profile_elapsed_time > curr_profile->getDuration()) {
+                curr_profile = nullptr;
+                return;
+            }
+
+            command.twist.linear.x = 0;
+            command.twist.linear.y = 0;
+            command.twist.angular.z = 0;
+
+            if (is_turning_) {
+                command.twist.angular.z = curr_profile->getVelocity(profile_elapsed_time);
+            }
+            else {
+                command.twist.linear.x = curr_profile->getVelocity(profile_elapsed_time);
+            }
+
+            RCLCPP_INFO(this->get_logger(), "MP time %0.3f/%0.3f, turning: %d", 
+                profile_elapsed_time, curr_profile->getDuration(), is_turning_);
+
+            RCLCPP_INFO(this->get_logger(), "Curr (%.2f, %.2f, %0.3f), Goal (%.2f, %.2f, %0.3f) dist: %0.5f",
+            curr_x_, curr_y_, heading_, goal_x_, goal_y_, pid.getGoalHeading(), pid.getGoalDistance() - pid.getDist());
+
+            RCLCPP_INFO(this->get_logger(), "Publishing linear velocity: x=%.5f, angular vel=%.5f",
+                command.twist.linear.x, command.twist.angular.z);
+
+            publisher_->publish(command);
+
+        }
+        // no mps 
+        else if (motion_profiles_.empty()) {
+
+            command.twist.linear.x = 0;
+            command.twist.linear.y = 0;
+            command.twist.angular.z = 0;
+            RCLCPP_WARN(this->get_logger(), "No motion profiles available.");
+            return;
+        }
+        // exists mp to pull
+        else
+        {
+            curr_profile = &motion_profiles_.front();
+            motion_profiles_.pop();
+            if (curr_profile->getIsTurn()) {
+                is_turning_ = true;
+            }
+            else {
+                is_turning_ = false;
+                curr_profile->initialize(pid.getGoalDistance());
+            }
+            profile_start_time_ = this->now();
+        }
+
+    }
+
+    void pidMove()
     {
         getParams();
 
@@ -150,6 +231,7 @@ private:
 
     }
 
+
     // Node components
     rclcpp::Publisher<geometry_msgs::msg::TwistStamped>::SharedPtr publisher_;
     rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr pose_estimate_sub_;
@@ -162,6 +244,12 @@ private:
 
     float k_p, k_i, k_d, k_p_head_, k_i_head_, k_d_head_;
     DiffPID pid;
+
+    std::queue<TrapezoidalMotionProfile> motion_profiles_;
+    rclcpp::Time profile_start_time_;
+    float profile_elapsed_time;
+    TrapezoidalMotionProfile* curr_profile;
+    bool is_turning_;
 
 };
 
