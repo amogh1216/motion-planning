@@ -6,8 +6,8 @@
 #include <nav_msgs/msg/odometry.hpp>
 #include <tf2/LinearMath/Quaternion.h>
 #include <tf2/LinearMath/Matrix3x3.h>
-#include "diff_pid.cpp"
-#include "diff_mp.cpp"
+#include "controls/diff_pid.cpp"
+#include "controls/diff_mp.cpp"
 
 #include <chrono>
 #include <cmath>
@@ -115,7 +115,7 @@ private:
         turn_profile.initialize(goal_heading_ - heading_);
         motion_profiles_.push(turn_profile);
 
-        TrapezoidalMotionProfile forward_profile(3, 1, false);
+        TrapezoidalMotionProfile forward_profile(10, 5, false);
         motion_profiles_.push(forward_profile);
 
 
@@ -153,8 +153,6 @@ private:
             RCLCPP_INFO(this->get_logger(), "MP time %0.3f/%0.3f, turning: %d", 
                 profile_elapsed_time, curr_profile->getDuration(), is_turning_);
 
-            RCLCPP_INFO(this->get_logger(), "Curr (%.2f, %.2f, %0.3f), Goal (%.2f, %.2f, %0.3f) dist: %0.5f",
-            curr_x_, curr_y_, heading_, goal_x_, goal_y_, pid.getGoalHeading(), pid.getGoalDistance() - pid.getDist());
 
             RCLCPP_INFO(this->get_logger(), "Publishing linear velocity: x=%.5f, angular vel=%.5f",
                 command.twist.linear.x, command.twist.angular.z);
@@ -169,6 +167,9 @@ private:
             command.twist.linear.y = 0;
             command.twist.angular.z = 0;
             RCLCPP_WARN(this->get_logger(), "No motion profiles available.");
+
+            publisher_->publish(command);
+
             return;
         }
         // exists mp to pull
@@ -185,6 +186,9 @@ private:
             }
             profile_start_time_ = this->now();
         }
+
+        RCLCPP_INFO(this->get_logger(), "Curr (%.2f, %.2f, %0.3f), Goal (%.2f, %.2f, %0.3f) dist: %0.5f",
+            curr_x_, curr_y_, heading_, goal_x_, goal_y_, pid.getGoalHeading(), pid.getGoalDistance() - pid.getDist());
 
     }
 

@@ -173,6 +173,13 @@ def generate_launch_description():
         ]
     )
 
+    plotjuggler_node = Node(
+        package="plotjuggler",
+        executable="plotjuggler",
+        name="plotjuggler",
+        output="screen"
+    )
+
     return launch.LaunchDescription(
         [
             SetEnvironmentVariable(

@@ -20,12 +20,12 @@ public:
 
         if (2 * accel_dist > abs_delta) {
             // Triangle profile (never reaches max velocity)
-            accel_time_ = std::sqrt(abs_delta / max_acc_);
+            accel_time_ = std::sqrt(2 * max_acc_ * abs_delta) / max_acc_; //std::sqrt(abs_delta / max_acc_);
             cruise_time_ = 0;
             decel_time_ = accel_time_;
         } else {
             // Trapezoidal profile
-            cruise_time_ = (abs_delta - 2 * accel_dist) / max_vel_;
+            cruise_time_ = (abs_delta - accel_dist - accel_dist) / max_vel_;
             decel_time_ = accel_time_;
         }
         duration_ = accel_time_ + cruise_time_ + decel_time_;
