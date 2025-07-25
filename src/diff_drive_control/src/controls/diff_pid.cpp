@@ -1,4 +1,5 @@
 #include <cmath>
+#include "include/types.h"
 
 class DiffPID {
 public:
@@ -9,7 +10,7 @@ public:
         x_err_integral_(0), heading_err_integral_(0),
         prev_dist_err_(0), prev_heading_(0),
         curr_x_(0), curr_y_(0), curr_heading_(0),
-        goal_x_(0), goal_y_(0), goal_heading_(0), goal_dist_(0), init_x_(0), init_y_(0), movingForward(false)
+        goal_x_(0), goal_y_(0), goal_heading_(0), goal_dist_(0), init_x_(0), init_y_(0), movingForward(false), started(false)
     {}
 
     // Parameterized constructor
@@ -20,20 +21,22 @@ public:
         x_err_integral_(0), heading_err_integral_(0),
         prev_dist_err_(0), prev_heading_(0),
         curr_x_(0), curr_y_(0), curr_heading_(0),
-        goal_x_(0), goal_y_(0), goal_heading_(0), goal_dist_(0), init_x_(0), init_y_(0), movingForward(false)
+        goal_x_(0), goal_y_(0), goal_heading_(0), goal_dist_(0), init_x_(0), init_y_(0), movingForward(false), started(false)
     {}
 
     // Set the robot's current position (x, y) and heading (in radians)
-    void updatePose(float x, float y, float heading) {
-        curr_x_ = x;
-        curr_y_ = y;
+    void updatePose(Pose2d pose) {
+        curr_x_ = pose.x;
+        curr_y_ = pose.y;
 
         prev_heading_ = curr_heading_;
-        curr_heading_ = heading;
+        curr_heading_ = pose.heading;
     }
 
     // Set the target and automatically calculate goal heading and distance
     void setTarget(float x, float y) {
+        // called when goal pose set
+        started = true;
         goal_x_ = x;
         goal_y_ = y;
 
@@ -50,6 +53,8 @@ public:
 
     // Compute linear velocity based on distance error
     float computeLinearVelocity(float dt) {
+        // prevent drift from start
+        if (!started) return 0;
         // curr distance from init point
         float dist = getDist();
         float distErr = goal_dist_ - dist;
@@ -65,6 +70,8 @@ public:
 
     // Compute angular velocity based on heading error
     float computeAngularVelocity(float dt) {
+        if (!started) return 0;
+        
         float heading_err = goal_heading_ - curr_heading_;
         // Normalize error to [-pi, pi]
         if (heading_err > M_PI) heading_err -= 2*M_PI;
@@ -110,6 +117,12 @@ public:
         return std::sqrt(dx*dx + dy*dy);
     }
 
+    float getDistToGoal() const {
+        float dx = curr_x_ - goal_x_;
+        float dy = curr_y_ - goal_y_;
+        return std::sqrt(dx*dx + dy*dy);
+    }
+
 private:
     // Linear PID coefficients
     float k_p_, k_i_, k_d_;
@@ -125,4 +138,5 @@ private:
     float goal_x_, goal_y_, goal_heading_, goal_dist_;
     float init_x_, init_y_;
     bool movingForward;
+    bool started;
 };

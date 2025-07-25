@@ -2,10 +2,11 @@
   ros__parameters:
     d: 0.0
     d_head: 0.05
-    i: 0.02
+    i: 0.0
     i_head: 0.0
-    p: 0.7
+    p: 0.35
     p_head: 0.15
+    control_mode: pid_profiler
     qos_overrides:
       /parameter_events:
         publisher:
