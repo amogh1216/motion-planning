@@ -1,2 +1,2 @@
 # motion-planning
-This repository documents myself learning ROS2 by building some simulations in the realm of controls and motion planning. 
+ROS2 + Gazebo simulation of high-level controls, localization, and motion planning for a differential drive robot.

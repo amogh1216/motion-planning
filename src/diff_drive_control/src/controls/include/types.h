@@ -7,6 +7,14 @@ struct Pose2d
     double heading;
 };
 
+struct Pose3d
+{
+    double x;
+    double y;
+    double z;
+    double heading;
+};
+
 enum MoveState
 {
     TURN,

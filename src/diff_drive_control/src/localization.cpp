@@ -5,6 +5,7 @@
 #include <tf2/LinearMath/Matrix3x3.h>
 #include <sensor_msgs/msg/imu.hpp>
 #include <nav_msgs/msg/odometry.hpp>
+#include "controls/include/types.h"
 
 /**
  * This node is used for localization of the robot. Currently there are two 
@@ -134,7 +135,7 @@ private:
         double delta_x = imu_vel_[0] * dt;
         double delta_y = imu_vel_[1] * dt;
 
-        imu_pose_ = {imu_pose_[0] + delta_x, imu_pose_[1] + delta_y, 0.0, yaw};
+        imu_pose_ = {imu_pose_.x + delta_x, imu_pose_.y + delta_y, 0.0, yaw};
     }
 
     void odomCallback(const nav_msgs::msg::Odometry::SharedPtr msg)
@@ -156,9 +157,9 @@ private:
         // Extract position and orientation        
         if (localizer == "odom") {
             pose_msg.header.stamp = this->now();
-            pose_msg.pose.position.x = odom_pose_[0];
-            pose_msg.pose.position.y = odom_pose_[1];
-            pose_msg.pose.position.z = odom_pose_[2];
+            pose_msg.pose.position.x = odom_pose_.x;
+            pose_msg.pose.position.y = odom_pose_.y;
+            pose_msg.pose.position.z = odom_pose_.z;
             pose_msg.pose.orientation = msg->pose.pose.orientation;
 
             // Publish the pose
@@ -166,11 +167,11 @@ private:
         }
     }
 
-    void logPoseData(const std::string &source, const std::array<double,4> &p)
+    void logPoseData(const std::string &source, const Pose3d &p)
     {
         RCLCPP_INFO(this->get_logger(),
                     "Mode [%s] | [%s] Position: (%.2f, %.2f, %.2f), Heading: %.2f rad",
-                    localizer.c_str(), source.c_str(), p[0], p[1], p[2], p[3]);
+                    localizer.c_str(), source.c_str(), p.x, p.y, p.z, p.heading);
     }
 
     void callback()
@@ -197,9 +198,9 @@ private:
     rclcpp::Time last_time_;
     rclcpp::TimerBase::SharedPtr log_timer_;
 
-    std::array<double, 4> imu_pose_;
-    std::array<double, 4> odom_pose_;
-    std::array<double, 4> truth_pose_;
+    Pose3d imu_pose_;
+    Pose3d odom_pose_;
+    Pose3d truth_pose_;
     std::array<double, 2> imu_vel_;
 
     geometry_msgs::msg::PoseStamped pose_msg;
