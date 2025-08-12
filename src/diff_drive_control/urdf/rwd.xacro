@@ -35,7 +35,7 @@
   </link>
 
   <!-- Include the wheel macro -->
-  <xacro:include filename="$(find robot)/urdf/wheel.xacro"/>
+  <xacro:include filename="./wheel.xacro"/>
 
   <!-- Instantiate wheels -->
   <xacro:wheel name="wheel_fl" parent_link="base_link" xyz="${wheel_x} ${wheel_y} ${wheel_z}"/>
