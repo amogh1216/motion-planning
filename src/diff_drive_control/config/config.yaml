@@ -16,3 +16,6 @@
           reliability: reliable
     use_sim_time: false
 
+/localization_node:
+  ros__parameters:
+    mode: odom

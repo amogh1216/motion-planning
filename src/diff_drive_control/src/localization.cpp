@@ -14,7 +14,7 @@
  * --- /imu: from imu sensor on the robot. I use a method to estimate current position 
  * based on linear acceleration
  * 
- * I also have the absolute position of the robot based on gazebo that I receive f
+ * True position received from Gazebo transform.
  */
 
 bool GAZEBO_FDBACK = true;
@@ -24,9 +24,6 @@ class LocalizationNode : public rclcpp::Node
 public:
     LocalizationNode() : Node("localization_node")
     {
-
-        // Initialize position and velocity
-        reset();
 
         // Publisher for the current pose
         pose_pub_ = this->
@@ -46,20 +43,27 @@ public:
         tf_sub_ = this->create_subscription<tf2_msgs::msg::TFMessage>(
             "/world/my_world/pose/info", 10,
             std::bind(&LocalizationNode::tfCallback, this, std::placeholders::_1));
+
+        this->declare_parameter<std::string>("mode", "truth");
+
+        // Position format: {x, y, z, heading}
+        imu_pose_ = {0.0, 0.0, 0.0, 0.0};
+        odom_pose_ = {0.0, 0.0, 0.0, 0.0};
+        truth_pose_ = {0.0, 0.0, 0.0, 0.0};
+
+        // velocity format: {x, y}
+        imu_vel_ = {0.0, 0.0};
+
+        last_time_ = this->now();
+
+        // loads localizer mode: 'truth' (gazebo) or 'odom' (diffdrivecontroller)
+        log_timer_ = this->create_wall_timer(
+            std::chrono::milliseconds(200),   // change interval as needed
+            std::bind(&LocalizationNode::callback, this)
+        );
     }
 
 private:
-
-    void reset()
-    {
-        imu_position_x_ = 0.0;
-        imu_position_y_ = 0.0;
-        imu_heading_ = 0.0;
-        velocity_x_ = 0.0;
-        velocity_y_ = 0.0;
-        heading_ = 0.0;
-        last_time_ = this->now();
-    }
 
     void tfCallback(const tf2_msgs::msg::TFMessage::SharedPtr msg)
     {
@@ -83,9 +87,13 @@ private:
                 double roll, pitch, yaw;
                 tf2::Matrix3x3(q).getRPY(roll, pitch, yaw);
 
-                heading_ = yaw;
+                // Save pose
+                truth_pose_ = {pose_msg.pose.position.x, pose_msg.pose.position.y, pose_msg.pose.position.z, yaw};
+
                 // Publish the pose
-                pose_pub_->publish(pose_msg);
+                if (localizer == "truth") {
+                    pose_pub_->publish(pose_msg);
+                }
                 break;
             }
         }
@@ -95,7 +103,7 @@ private:
     {
         // Calculate time difference
         rclcpp::Time current_time = this->now();
-        double dt = current_time.seconds() - last_time_.seconds(); //(current_time - last_time_).seconds();
+        double dt = (current_time - last_time_).seconds();
         last_time_ = current_time;
 
         // Extract linear acceleration
@@ -103,18 +111,6 @@ private:
         double ay = msg->linear_acceleration.y;
 
         // RCLCPP_INFO(this->get_logger(), "IMU dt: (%.8f) accel: (%.5f, %.5f)", dt, ax, ay);
-
-        // Convert acceleration to world frame using current heading
-        double ax_world = ax * std::cos(imu_heading_) - ay * std::sin(imu_heading_);
-        double ay_world = ax * std::sin(imu_heading_) + ay * std::cos(imu_heading_);
-
-        // Integrate acceleration to update velocity
-        velocity_x_ += ax_world * dt;
-        velocity_y_ += ay_world * dt;
-
-        // Integrate velocity to update position
-        imu_position_x_ += velocity_x_ * dt;
-        imu_position_y_ += velocity_y_ * dt;
 
         // Extract heading from orientation quaternion
         tf2::Quaternion q(
@@ -125,15 +121,24 @@ private:
         tf2::Matrix3x3 m(q);
         double roll, pitch, yaw;
         m.getRPY(roll, pitch, yaw);
-        imu_heading_ = yaw;
+
+        // Convert acceleration to world frame using current heading
+        double ax_world = ax * std::cos(yaw) - ay * std::sin(yaw);
+        double ay_world = ax * std::sin(yaw) + ay * std::cos(yaw);
+
+        // Integrate acceleration to update velocity
+        imu_vel_[0] += ax_world * dt;
+        imu_vel_[1] += ay_world * dt;
+
+        // Integrate velocity to update position
+        double delta_x = imu_vel_[0] * dt;
+        double delta_y = imu_vel_[1] * dt;
+
+        imu_pose_ = {imu_pose_[0] + delta_x, imu_pose_[1] + delta_y, 0.0, yaw};
     }
 
     void odomCallback(const nav_msgs::msg::Odometry::SharedPtr msg)
     {
-        // Extract position
-        double odom_x = msg->pose.pose.position.x;
-        double odom_y = msg->pose.pose.position.y;
-        double odom_z = msg->pose.pose.position.z;
         
         // Extract orientation and convert to heading
         tf2::Quaternion q(
@@ -144,32 +149,44 @@ private:
         tf2::Matrix3x3 m(q);
         double roll, pitch, yaw;
         m.getRPY(roll, pitch, yaw);
-        heading_ = yaw;
 
-        // Extract position and orientation
-                
-        if (!GAZEBO_FDBACK) {
+        // Extract pose
+        odom_pose_ = {msg->pose.pose.position.x, msg->pose.pose.position.y, msg->pose.pose.position.z, yaw};
+
+        // Extract position and orientation        
+        if (localizer == "odom") {
             pose_msg.header.stamp = this->now();
-            pose_msg.pose.position.x = odom_x;
-            pose_msg.pose.position.y = odom_y;
-            pose_msg.pose.position.z = odom_z;
+            pose_msg.pose.position.x = odom_pose_[0];
+            pose_msg.pose.position.y = odom_pose_[1];
+            pose_msg.pose.position.z = odom_pose_[2];
             pose_msg.pose.orientation = msg->pose.pose.orientation;
 
             // Publish the pose
             pose_pub_->publish(pose_msg);
         }
-        
-        // Log odometry-based position and heading
-        RCLCPP_INFO(this->get_logger(), "ODOM Position: (%.2f, %.2f, %.2f), Heading: %.2f rad", 
-                    odom_x, odom_y, odom_z, yaw);
-
-        // RCLCPP_INFO(this->get_logger(), "IMU Position: (%.2f, %.2f), Heading: %.2f rad", 
-        //             imu_position_x_, imu_position_y_, imu_heading_);
-
-        RCLCPP_INFO(this->get_logger(),
-                    "Publishing pose: x=%.2f, y=%.2f, z=%.2f, heading(yaw)=%.2f rad",
-                    pose_msg.pose.position.x, pose_msg.pose.position.y, pose_msg.pose.position.z, yaw);
     }
+
+    void logPoseData(const std::string &source, const std::array<double,4> &p)
+    {
+        RCLCPP_INFO(this->get_logger(),
+                    "Mode [%s] | [%s] Position: (%.2f, %.2f, %.2f), Heading: %.2f rad",
+                    localizer.c_str(), source.c_str(), p[0], p[1], p[2], p[3]);
+    }
+
+    void callback()
+    {
+        logPoseData("ODOM", odom_pose_);
+        logPoseData("IMU", imu_pose_);
+        logPoseData("TRUTH", truth_pose_);
+        this->get_parameter("mode", localizer);
+
+        if (localizer != "odom" and localizer != "truth")
+        {
+            RCLCPP_ERROR(this->get_logger(), "Localization mode set to %s. Should be set to either \"odom\" or \"truth.\" ", localizer.c_str());
+        }
+        
+    }
+
     
     rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr pose_pub_;
 
@@ -177,17 +194,16 @@ private:
     rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_subscriber_;
     rclcpp::Subscription<tf2_msgs::msg::TFMessage>::SharedPtr tf_sub_;
 
-    // State variables for IMU reconstruction
     rclcpp::Time last_time_;
-    double imu_position_x_;
-    double imu_position_y_;
-    double imu_heading_;
-    double velocity_x_;
-    double velocity_y_;
+    rclcpp::TimerBase::SharedPtr log_timer_;
 
-    // true pose
+    std::array<double, 4> imu_pose_;
+    std::array<double, 4> odom_pose_;
+    std::array<double, 4> truth_pose_;
+    std::array<double, 2> imu_vel_;
+
     geometry_msgs::msg::PoseStamped pose_msg;
-    double heading_;
+    std::string localizer;
 };
 
 int main(int argc, char * argv[])
