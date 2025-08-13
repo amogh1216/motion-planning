@@ -129,6 +129,7 @@ def generate_launch_description():
             "/imu@sensor_msgs/msg/Imu[ignition.msgs.IMU",
             "/world/my_world/pose/info@tf2_msgs/msg/TFMessage[gz.msgs.Pose_V",
             "/clock@rosgraph_msgs/msg/Clock[ignition.msgs.Clock",
+            "/lidar@sensor_msgs/msg/LaserScan[gz.msgs.LaserScan"
         ],
         output="screen",
     )

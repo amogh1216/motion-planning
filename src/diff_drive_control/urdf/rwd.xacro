@@ -45,6 +45,8 @@
 
   <xacro:include filename="$(find diff_drive_control)/urdf/imu.xacro"/>
   <xacro:imu_sensor xyz="0 0 0.05" rpy="${origin}" parent="base_link"/>
+  <!-- <xacro:include filename="$(find diff_drive_control)/urdf/lidar.xacro"/>
+  <xacro:lidar_sensor xyz="0 0 0.08" rpy="${origin}" parent="base_link"/> -->
 
   <ros2_control name="GazeboSimSystem" type="system">
     <hardware>
