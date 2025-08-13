@@ -23,6 +23,12 @@ public:
                         geometry_msgs::msg::TwistStamped &cmd) = 0;
     virtual void updateParams(float p, float i, float d,
                                float p_head, float i_head, float d_head) = 0;
+
+    virtual Pose2d getCurrentPose() const = 0;
+    virtual Pose2d getGoalPose() const = 0;
+    virtual double getDistance() const = 0;
+    virtual std::string getState() const = 0;
+    virtual double getVel() const = 0;
 };
 
 class PIDController : public DiffDriveController {
@@ -60,14 +66,18 @@ public:
         switch (state_) {
             case MoveState::TURN:
                 cmd.twist.angular.z = pid_.computeAngularVelocity(dt);
+                vel_ = cmd.twist.angular.z;
                 break;
             case MoveState::STABILIZE_ANGLE:
                 cmd.twist.angular.z = pid_.computeAngularVelocity(dt);
+                vel_ = cmd.twist.angular.z;
                 break;
             case MoveState::MOVE:
                 cmd.twist.linear.x = pid_.computeLinearVelocity(dt);
+                vel_ = cmd.twist.linear.x;
                 break;
             case MoveState::STOP:
+                vel_ = cmd.twist.linear.x;
                 break;
         }
 
@@ -91,12 +101,26 @@ public:
         }
     }
 
+    Pose2d getCurrentPose() const override { return curr_pose_; }
+    Pose2d getGoalPose() const override { return goal_pose_; }
+    double getDistance() const override { return std::abs(pid_.getGoalDistance() - pid_.getDist()); }
+    std::string getState() const override { 
+        if (state_ == MoveState::TURN) return "Turning";
+        else if (state_ == MoveState::MOVE) return "Moving";
+        else if (state_ == MoveState::STABILIZE_ANGLE) return "Stabilizing";
+        else if (state_ == MoveState::STOP) return "Stopping";
+        return "";
+    }
+    // angular or linear
+    double getVel() const override { return vel_;}
+
 private:
     DiffPID pid_;
     Pose2d curr_pose_{}, goal_pose_{};
     MoveState state_{MoveState::STOP};
     rclcpp::Time prev_time_;
     rclcpp::Time stabilize_angle_time_;
+    double vel_;
 };
 
 class PIDProfilerController : public DiffDriveController {
@@ -134,14 +158,18 @@ public:
         switch (state_) {
             case MoveState::TURN:
                 cmd.twist.angular.z = pid_profiler_.computeAngularVelocity(dt, prev_ang_vel_);
+                vel_ = cmd.twist.angular.z;
                 break;
             case MoveState::STABILIZE_ANGLE:
                 cmd.twist.angular.z = pid_profiler_.computeAngularVelocity(dt, prev_ang_vel_);
+                vel_ = cmd.twist.angular.z;
                 break;
             case MoveState::MOVE:
                 cmd.twist.linear.x = pid_profiler_.computeLinearVelocity(dt, prev_vel_);
+                vel_ = cmd.twist.linear.x;
                 break;
             case MoveState::STOP:
+                vel_ = cmd.twist.linear.x;
                 break;
         }
         prev_vel_ = cmd.twist.linear.x;
@@ -167,6 +195,18 @@ public:
         }
     }
 
+    Pose2d getCurrentPose() const override { return curr_pose_; }
+    Pose2d getGoalPose() const override { return goal_pose_; }
+    double getDistance() const override { return std::abs(pid_profiler_.getGoalDistance() - pid_profiler_.getDist()); }
+    std::string getState() const override {
+        if (state_ == MoveState::TURN) return "Turning";
+        else if (state_ == MoveState::MOVE) return "Moving";
+        else if (state_ == MoveState::STABILIZE_ANGLE) return "Stabilizing";
+        else if (state_ == MoveState::STOP) return "Stopping";
+        return "";
+    }
+    double getVel() const override {return vel_;}
+
 private:
     DiffPIDProfiler pid_profiler_;
     Pose2d curr_pose_{}, goal_pose_{};
@@ -174,6 +214,7 @@ private:
     rclcpp::Time prev_time_;
     rclcpp::Time stabilize_angle_time_;
     float prev_vel_{0}, prev_ang_vel_{0};
+    double vel_;
 };
 
 class MotionProfileController : public DiffDriveController {
@@ -195,10 +236,6 @@ public:
         profiles_.push(forward_profile);
     }
 
-    void updateParams(float, float, float, float, float, float) override {
-        // No PID params here
-    }
-
     void update(rclcpp::Time now, geometry_msgs::msg::TwistStamped &cmd) override {
         cmd.header.stamp = now;
         cmd.header.frame_id = "base_link";
@@ -212,8 +249,10 @@ public:
             }
             if (curr_profile_->getIsTurn()) {
                 cmd.twist.angular.z = curr_profile_->getVelocity(elapsed);
+                vel_ = cmd.twist.angular.z;
             } else {
                 cmd.twist.linear.x = curr_profile_->getVelocity(elapsed);
+                vel_ = cmd.twist.linear.x;
             }
             return;
         }
@@ -228,8 +267,21 @@ public:
         start_time_ = now;
     }
 
+    void updateParams(float, float, float, float, float, float) override 
+    {
+        // no-op
+    }
+
+
+    Pose2d getCurrentPose() const override { return curr_pose_; }
+    Pose2d getGoalPose() const override { return goal_pose_; }
+    double getDistance() const override { return distanceToGoal(); }
+    std::string getState() const override {return "";}
+    double getVel() const override {return vel_;}
+
+
 private:
-    double distanceToGoal() {
+    double distanceToGoal() const {
         return std::hypot(goal_pose_.x - curr_pose_.x, goal_pose_.y - curr_pose_.y);
     }
 
@@ -237,13 +289,14 @@ private:
     std::queue<TrapezoidalMotionProfile> profiles_;
     TrapezoidalMotionProfile* curr_profile_{nullptr};
     rclcpp::Time start_time_;
+    double vel_;
 };
 
 // =======================================================
 // Node Class
 // =======================================================
 class DiffDriveBrain : public rclcpp::Node {
-    
+
 public:
     DiffDriveBrain() : Node("diff_drive_brain") {
         declareParams();
@@ -252,16 +305,22 @@ public:
         publisher_ = create_publisher<geometry_msgs::msg::TwistStamped>("/rwd_diff_controller/cmd_vel", 10);
 
         pose_sub_ = create_subscription<geometry_msgs::msg::PoseStamped>(
-            "/get_pose", 10, [this](auto msg){ poseCallback(msg); });
+            "/get_pose", 10, [this](const geometry_msgs::msg::PoseStamped::SharedPtr msg){ poseCallback(msg); });
 
         goal_sub_ = create_subscription<geometry_msgs::msg::PoseStamped>(
-            "/goal_pose", 10, [this](auto msg){ goalCallback(msg); });
+            "/goal_pose", 10, [this](const geometry_msgs::msg::PoseStamped::SharedPtr msg){ goalCallback(msg); });
 
         timer_ = create_wall_timer(50ms, [this](){
             geometry_msgs::msg::TwistStamped cmd;
             controller_->update(now(), cmd);
             publisher_->publish(cmd);
         });
+
+        log_timer_ = this->create_wall_timer(
+            std::chrono::milliseconds(200),
+            std::bind(&DiffDriveBrain::logStatus, this)
+        );
+
     }
 
 private:
@@ -272,7 +331,7 @@ private:
         this->declare_parameter<float>("p_head", 0.2);
         this->declare_parameter<float>("i_head", 0.0);
         this->declare_parameter<float>("d_head", 0.0);
-        this->declare_parameter<std::string>("control_mode", "motion_profile");
+        this->declare_parameter<std::string>("control_mode", "pid");
     }
 
     void getParams() {
@@ -311,6 +370,29 @@ private:
         controller_->setTarget({msg->pose.position.x, msg->pose.position.y, yaw});
     }
 
+    void logStatus()
+    {
+        if (!controller_) return;
+        Pose2d curr = controller_->getCurrentPose();
+        Pose2d goal = controller_->getGoalPose();
+        double dist = controller_->getDistance();
+        double vel = controller_->getVel();
+        RCLCPP_INFO(
+            this->get_logger(),
+            "[%s] | Current Pose: x=%.2f y=%.2f heading=%.2f | Goal Pose: x=%.2f y=%.2f heading=%.2f | Distance=%.3f | Vel = %.3f",
+            control_mode_.c_str(),
+            static_cast<double>(curr.x), static_cast<double>(curr.y), static_cast<double>(curr.heading),
+            static_cast<double>(goal.x), static_cast<double>(goal.y), static_cast<double>(goal.heading),
+            static_cast<double>(dist), static_cast<double>(vel)
+        );
+        if (control_mode_ == "pid" or control_mode_ == "pid_profiler")
+        {
+            RCLCPP_INFO(this->get_logger(), "State: %s", controller_->getState().c_str());
+        }
+
+    }
+
+
     // Params
     float k_p_, k_i_, k_d_, k_p_h_, k_i_h_, k_d_h_;
     std::string control_mode_;
@@ -323,6 +405,8 @@ private:
 
     // Current controller
     std::unique_ptr<DiffDriveController> controller_;
+
+    rclcpp::TimerBase::SharedPtr log_timer_;
 };
 
 int main(int argc, char* argv[]) {

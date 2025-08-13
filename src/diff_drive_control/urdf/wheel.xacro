@@ -1,8 +1,8 @@
 <?xml version="1.0"?>
 <robot xmlns:xacro="http://ros.org/wiki/xacro" name="wheel">
 
-<xacro:property name="wheel_len" value="0.2"/>
-<xacro:property name="wheel_rad" value="0.5"/>
+<xacro:property name="wheel_len" value="0.02"/>
+<xacro:property name="wheel_rad" value="0.05"/>
 
   <xacro:macro name="wheel" params="name parent_link xyz">
     <link name="${name}">
