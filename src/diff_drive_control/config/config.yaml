@@ -7,6 +7,7 @@
     p: 0.35
     p_head: 0.15
     control_mode: pid_profiler
+    path_following: false
     qos_overrides:
       /parameter_events:
         publisher:

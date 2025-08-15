@@ -284,7 +284,6 @@ class DiffDriveBrain : public rclcpp::Node {
 public:
     DiffDriveBrain() : Node("diff_drive_brain") {
         declareParams();
-        getParams();
 
         publisher_ = create_publisher<geometry_msgs::msg::TwistStamped>("/rwd_diff_controller/cmd_vel", 10);
 
@@ -295,10 +294,13 @@ public:
             "/goal_pose", 10, [this](const geometry_msgs::msg::PoseStamped::SharedPtr msg){ goalCallback(msg); });
 
         timer_ = create_wall_timer(50ms, [this](){
+            getParams();
             geometry_msgs::msg::TwistStamped cmd;
             controller_->update(now(), cmd);
-            publisher_->publish(cmd);
-            logStatus(cmd);
+            if (!path_following_) {
+                publisher_->publish(cmd);
+                logStatus(cmd);
+            }
         });
 
     }
@@ -312,6 +314,7 @@ private:
         this->declare_parameter<float>("i_head", 0.0);
         this->declare_parameter<float>("d_head", 0.0);
         this->declare_parameter<std::string>("control_mode", "pid");
+        this->declare_parameter<bool>("path_following", true);
     }
 
     void getParams() {
@@ -322,6 +325,7 @@ private:
         this->get_parameter("i_head", k_i_h_);
         this->get_parameter("d_head", k_d_h_);
         this->get_parameter("control_mode", control_mode_);
+        this->get_parameter("path_following", path_following_);
 
         if (control_mode_ == "pid") {
             controller_ = std::make_unique<PIDController>(k_p_, k_i_, k_d_, k_p_h_, k_i_h_, k_d_h_);
@@ -374,6 +378,7 @@ private:
 
     // Params
     float k_p_, k_i_, k_d_, k_p_h_, k_i_h_, k_d_h_;
+    bool path_following_;
     std::string control_mode_;
 
     // ROS2 interfaces
