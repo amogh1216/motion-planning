@@ -28,7 +28,6 @@ public:
     virtual Pose2d getGoalPose() const = 0;
     virtual double getDistance() const = 0;
     virtual std::string getState() const = 0;
-    virtual double getVel() const = 0;
 };
 
 class PIDController : public DiffDriveController {
@@ -60,24 +59,21 @@ public:
         prev_time_ = now;
 
         cmd.header.stamp = now;
+        cmd.twist.linear.x = 0;
         cmd.twist.linear.y = 0;
         cmd.twist.angular.z = 0;
 
         switch (state_) {
             case MoveState::TURN:
                 cmd.twist.angular.z = pid_.computeAngularVelocity(dt);
-                vel_ = cmd.twist.angular.z;
                 break;
             case MoveState::STABILIZE_ANGLE:
                 cmd.twist.angular.z = pid_.computeAngularVelocity(dt);
-                vel_ = cmd.twist.angular.z;
                 break;
             case MoveState::MOVE:
                 cmd.twist.linear.x = pid_.computeLinearVelocity(dt);
-                vel_ = cmd.twist.linear.x;
                 break;
             case MoveState::STOP:
-                vel_ = cmd.twist.linear.x;
                 break;
         }
 
@@ -111,8 +107,6 @@ public:
         else if (state_ == MoveState::STOP) return "Stopping";
         return "";
     }
-    // angular or linear
-    double getVel() const override { return vel_;}
 
 private:
     DiffPID pid_;
@@ -120,7 +114,6 @@ private:
     MoveState state_{MoveState::STOP};
     rclcpp::Time prev_time_;
     rclcpp::Time stabilize_angle_time_;
-    double vel_;
 };
 
 class PIDProfilerController : public DiffDriveController {
@@ -152,24 +145,21 @@ public:
         prev_time_ = now;
 
         cmd.header.stamp = now;
+        cmd.twist.linear.x = 0;
         cmd.twist.linear.y = 0;
         cmd.twist.angular.z = 0;
 
         switch (state_) {
             case MoveState::TURN:
                 cmd.twist.angular.z = pid_profiler_.computeAngularVelocity(dt, prev_ang_vel_);
-                vel_ = cmd.twist.angular.z;
                 break;
             case MoveState::STABILIZE_ANGLE:
                 cmd.twist.angular.z = pid_profiler_.computeAngularVelocity(dt, prev_ang_vel_);
-                vel_ = cmd.twist.angular.z;
                 break;
             case MoveState::MOVE:
                 cmd.twist.linear.x = pid_profiler_.computeLinearVelocity(dt, prev_vel_);
-                vel_ = cmd.twist.linear.x;
                 break;
             case MoveState::STOP:
-                vel_ = cmd.twist.linear.x;
                 break;
         }
         prev_vel_ = cmd.twist.linear.x;
@@ -205,7 +195,6 @@ public:
         else if (state_ == MoveState::STOP) return "Stopping";
         return "";
     }
-    double getVel() const override {return vel_;}
 
 private:
     DiffPIDProfiler pid_profiler_;
@@ -214,7 +203,6 @@ private:
     rclcpp::Time prev_time_;
     rclcpp::Time stabilize_angle_time_;
     float prev_vel_{0}, prev_ang_vel_{0};
-    double vel_;
 };
 
 class MotionProfileController : public DiffDriveController {
@@ -249,10 +237,8 @@ public:
             }
             if (curr_profile_->getIsTurn()) {
                 cmd.twist.angular.z = curr_profile_->getVelocity(elapsed);
-                vel_ = cmd.twist.angular.z;
             } else {
                 cmd.twist.linear.x = curr_profile_->getVelocity(elapsed);
-                vel_ = cmd.twist.linear.x;
             }
             return;
         }
@@ -277,7 +263,6 @@ public:
     Pose2d getGoalPose() const override { return goal_pose_; }
     double getDistance() const override { return distanceToGoal(); }
     std::string getState() const override {return "";}
-    double getVel() const override {return vel_;}
 
 
 private:
@@ -289,7 +274,6 @@ private:
     std::queue<TrapezoidalMotionProfile> profiles_;
     TrapezoidalMotionProfile* curr_profile_{nullptr};
     rclcpp::Time start_time_;
-    double vel_;
 };
 
 // =======================================================
@@ -314,12 +298,8 @@ public:
             geometry_msgs::msg::TwistStamped cmd;
             controller_->update(now(), cmd);
             publisher_->publish(cmd);
+            logStatus(cmd);
         });
-
-        log_timer_ = this->create_wall_timer(
-            std::chrono::milliseconds(200),
-            std::bind(&DiffDriveBrain::logStatus, this)
-        );
 
     }
 
@@ -370,20 +350,19 @@ private:
         controller_->setTarget({msg->pose.position.x, msg->pose.position.y, yaw});
     }
 
-    void logStatus()
+    void logStatus(geometry_msgs::msg::TwistStamped &cmd)
     {
         if (!controller_) return;
         Pose2d curr = controller_->getCurrentPose();
         Pose2d goal = controller_->getGoalPose();
         double dist = controller_->getDistance();
-        double vel = controller_->getVel();
         RCLCPP_INFO(
             this->get_logger(),
-            "[%s] | Current Pose: x=%.2f y=%.2f heading=%.2f | Goal Pose: x=%.2f y=%.2f heading=%.2f | Distance=%.3f | Vel = %.3f",
+            "[%s] | Current Pose: x=%.2f y=%.2f heading=%.2f | Goal Pose: x=%.2f y=%.2f heading=%.2f | Distance=%.3f | VelX = %.3f VelAng %0.3f",
             control_mode_.c_str(),
             static_cast<double>(curr.x), static_cast<double>(curr.y), static_cast<double>(curr.heading),
             static_cast<double>(goal.x), static_cast<double>(goal.y), static_cast<double>(goal.heading),
-            static_cast<double>(dist), static_cast<double>(vel)
+            static_cast<double>(dist), static_cast<double>(cmd.twist.linear.x), static_cast<double>(cmd.twist.angular.z)
         );
         if (control_mode_ == "pid" or control_mode_ == "pid_profiler")
         {
