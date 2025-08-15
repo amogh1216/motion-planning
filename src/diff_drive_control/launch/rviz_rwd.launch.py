@@ -60,21 +60,7 @@ def generate_launch_description():
         output="screen",
         arguments=["-d", LaunchConfiguration("rvizconfig")],
     )
-
-    # Localize using odometry and IMU data. 
-    # It can be turned off because the navigation stack uses AMCL with lidar data for localization
-    robot_localization_node = Node(
-        condition=launch.conditions.IfCondition(use_localization),
-        package="robot_localization",
-        executable="ekf_node",
-        name="ekf_filter_node",
-        output="screen",
-        parameters=[
-            os.path.join(pkg_share, "config/ekf.yaml"),
-            {"use_sim_time": use_sim_time},
-        ],
-    )
-
+    
     # gazebo have to be executed with shell=False, or test_launch won't terminate it
     #   see: https://github.com/ros2/launch/issues/545
     # This code is form taken ros_gz_sim and modified to work with shell=False
@@ -181,6 +167,13 @@ def generate_launch_description():
         output="screen"
     )
 
+    pure_pursuit_node = Node(
+        package="diff_drive_control",
+        executable="pure_pursuit.py",
+        name="pure_pursuit",
+        output="screen"
+    )
+
     return launch.LaunchDescription(
         [
             SetEnvironmentVariable(
@@ -240,10 +233,8 @@ def generate_launch_description():
             robot_state_publisher_node,
             spawn_entity,
             diff_drive_base_controller_spawner,
-            #robot_localization_node,
             rviz_node,
-            #localization,
             joint_state_broadcaster_spawner,
-            #diff_drive_brain
+            # pure_pursuit_node
         ] + gazebo
     )
