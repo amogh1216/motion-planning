@@ -74,7 +74,7 @@ class PurePursuitNode(Node):
             ind += 1
         target = self.path[ind]
         # If at the end of the path, stop
-        at_goal = (ind >= len(self.path) - 1) and (np.linalg.norm([x - target[0], y - target[1]]) < 0.2)
+        at_goal = (ind >= len(self.path) - 1) and (np.linalg.norm([x - target[0], y - target[1]]) < 0.5)
         # Transform target to robot frame
         dx = target[0] - x
         dy = target[1] - y

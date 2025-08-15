@@ -19,4 +19,4 @@
 
 /localization_node:
   ros__parameters:
-    mode: odom
+    mode: truth
