@@ -45,10 +45,7 @@ class Map_GraphicsScene(QGraphicsScene):
         if mode == 'path':
             # Clear previous path drawing
             for item in self.path_items:
-                try:
-                    self.removeItem(item)
-                except Exception as e:
-                    print(f"Failed to remove item from scene: {e}")
+                self.removeItem(item)
             self.path_items.clear()
             self.path.clear()
             self.prev_x = self.center_x
@@ -56,6 +53,16 @@ class Map_GraphicsScene(QGraphicsScene):
             self.path.append([(self.prev_x - self.center_x)*self.scale, 
                          -1*(self.prev_y - self.center_y)*self.scale])
         # Do not clear obstacles when switching to obstacle mode
+
+    def reset_path(self):
+        for item in self.path_items:
+            self.removeItem(item)
+        self.path_items.clear()
+        self.path.clear()
+        self.prev_x = self.center_x
+        self.prev_y = self.center_y
+        self.path.append([(self.prev_x - self.center_x)*self.scale, 
+                     -1*(self.prev_y - self.center_y)*self.scale])
 
     def clear_obstacles(self):
         for item in self.obstacle_items:
@@ -85,14 +92,12 @@ class Map_GraphicsScene(QGraphicsScene):
         x = event.scenePos().x()
         y = event.scenePos().y()
         if self.mode == 'path':
+            if len(self.path) == 0:
+                self.reset_path()
             if self.drawing_path:
                 # If already drawing, clear previous path
                 for item in self.path_items:
-                    try:
-                        item.prepareGeometryChange()
-                        self.removeItem(item)
-                    except Exception as e:
-                        print(f"Failed to remove item from scene: {e}")
+                    self.removeItem(item)
                 self.path_items.clear()
                 self.path.clear()
                 self.prev_x = x
@@ -138,8 +143,8 @@ class Path_Tracking_Simulator(QDialog):
         self.map_scene.addLine(QLineF(0, 250, 500, 250), self.center_line)
 
         # odom localization display (green circle)
-        self.diameter = 5 #pix
-        self.C = 10 #length
+        self.diameter = 2 #pix
+        self.C = 5 #length
         self.first_time = True
         self.enable_repaint = False
         self.odom_x = None
@@ -151,6 +156,8 @@ class Path_Tracking_Simulator(QDialog):
         self.ui.clear_obstacles_pushButton.clicked.connect(self.clear_obstacles)
 
         self.circle_radius = 50  # in pixels, default value, divided by scale = m
+        self.num_rays = 6
+        self.effective_range = math.pi
         # Optionally, load from params or config file
 
     def odom_callback(self, msg):
@@ -172,7 +179,7 @@ class Path_Tracking_Simulator(QDialog):
                 q2 = orientation.z
                 q3 = orientation.w
                 numerator = q0*q1 + q2*q3
-                denominator = q0**2 - q1**2 - q2**2 + q3**2
+                denominator = 1 - 2 * (q1**2 + q2**2)
                 angle = -math.pi/2 + math.atan2(2*numerator, denominator)
 
                 if(self.enable_repaint):
@@ -189,9 +196,16 @@ class Path_Tracking_Simulator(QDialog):
                                               y - int(self.diameter/2), 
                                               self.diameter,
                                               self.diameter,
-                                              self.vehicle_pen)
+                                              self.vehicle_pen, QBrush(Qt.red))
                     self.pixmap = self.ui.map_graphicsView.grab(QRect(QPoint(0,0),QSize(500, 500)))
 
+                    # Draw lines every X degrees from robot position, first line in robot's heading - range/2
+                    for i in range(self.num_rays+1):
+                        theta = -angle - math.pi/2 - self.effective_range/2 + (i * self.effective_range / self.num_rays) 
+                        # first line = heading, then every 60 deg
+                        x2 = x + self.circle_radius * math.cos(theta)
+                        y2 = y + self.circle_radius * math.sin(theta)
+                        self.map_scene.addLine(x, y, x2, y2, QPen(Qt.darkMagenta, 2))
 
                     points = [[x - self.C*math.sin(angle), y - self.C*math.cos(angle)], 
                               [x - math.cos(angle)*self.C/2 + math.sqrt(3)*math.sin(angle)*self.C/2,
@@ -212,7 +226,6 @@ class Path_Tracking_Simulator(QDialog):
                                                   QBrush(Qt.darkGreen))
                     # Draw big circle around robot
                     self.map_scene.addEllipse(x - self.circle_radius, y - self.circle_radius, 2*self.circle_radius, 2*self.circle_radius, QPen(Qt.darkMagenta))
-        
         
     def update(self): 
         rclpy.spin_once(self.ros_node, timeout_sec=0)
@@ -284,17 +297,16 @@ class Path_Tracking_Simulator(QDialog):
                 break
 
             if path_to_publish_index > 10000:
-                self.map_scene.path.clear()
+                self.map_scene.reset_path()
                 self.map_scene.clear()
                 path_to_publish.clear()
-                self.map_scene.prev_x = 250
-                self.map_scene.prev_y = 250
-                self.map_scene.path.append([(self.map_scene.prev_x - self.map_scene.center_x)*self.map_scene.scale, 
-                                  -1*(self.map_scene.prev_y - self.map_scene.center_y)*self.map_scene.scale])
                 self.map_scene.addLine(QLineF(250, 0, 250, 500), self.center_line) 
                 self.map_scene.addLine(QLineF(0, 250, 500, 250), self.center_line)
                 print("path generation failed. Please draw another path.")
-                break
+                path_to_publish_np = np.array(path_to_publish)
+                path_pub = Float64MultiArray(data=np.ravel(path_to_publish_np))    
+                self.pub.publish(path_pub) 
+                return
 
         print(path_to_publish)
         path_to_publish_np = np.array(path_to_publish)
@@ -314,10 +326,6 @@ class Path_Tracking_Simulator(QDialog):
         pixmap2cv = self.ui.map_graphicsView.grab(QRect(QPoint(1,1),QSize(500, 500)))
         frame = self.pixmap_to_cv(pixmap2cv)
         frame = cv2.resize(frame, (1000, 1000))
-        cv2.imwrite(os.environ['HOME'] + 'ros/motion-planning/path_tracking_sim_ros2/src/robot_simulation/robot_gazebo/worlds/path_tracking_stage/meshes/stage.png', frame)
-        install_dir = Path(os.environ['HOME'] + 'ros/motion-planning/path_tracking_sim_ros2/install/robot_gazebo/share/robot_gazebo/worlds/path_tracking_stage/meshes')
-        if install_dir.exists():
-            cv2.imwrite(os.environ['HOME'] + 'ros/motion-planning/path_tracking_sim_ros2/install/robot_gazebo/share/robot_gazebo/worlds/path_tracking_stage/meshes/stage.png', frame)
 
     def enable_draw_path(self):
         self.map_scene.set_mode('path')
