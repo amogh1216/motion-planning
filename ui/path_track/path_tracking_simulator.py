@@ -19,6 +19,7 @@ import rclpy
 from rclpy.node import Node
 from std_msgs.msg import Float64MultiArray
 from tf2_msgs.msg import TFMessage
+from nav_msgs.msg import Odometry
 
 class Map_GraphicsScene(QGraphicsScene):
     def __init__(self, parent=None):
@@ -27,24 +28,87 @@ class Map_GraphicsScene(QGraphicsScene):
         self.center_y = 250
         self.prev_x = 250
         self.prev_y = 250
-        self.scale = 0.04 #m/pix
+        self.scale = 0.02 #m/pix
         self.path = []
         self.path.append([(self.prev_x - self.center_x)*self.scale, 
                      -1*(self.prev_y - self.center_y)*self.scale])
         self.path_pen = QPen(Qt.blue)
+        self.obstacle_pen = QPen(Qt.darkYellow)
+        self.mode = 'path'  # 'path' or 'obstacle'
+        self.path_items = []
+        self.obstacle_items = []
+        self.drawing_path = False
+        self.drawing_obstacle = False
+
+    def set_mode(self, mode):
+        self.mode = mode
+        if mode == 'path':
+            # Clear previous path drawing
+            for item in self.path_items:
+                try:
+                    self.removeItem(item)
+                except Exception as e:
+                    print(f"Failed to remove item from scene: {e}")
+            self.path_items.clear()
+            self.path.clear()
+            self.prev_x = self.center_x
+            self.prev_y = self.center_y
+            self.path.append([(self.prev_x - self.center_x)*self.scale, 
+                         -1*(self.prev_y - self.center_y)*self.scale])
+        # Do not clear obstacles when switching to obstacle mode
+
+    def clear_obstacles(self):
+        for item in self.obstacle_items:
+            self.removeItem(item)
+        self.obstacle_items.clear()
 
     def mouseMoveEvent(self,event):
         x = event.scenePos().x()
         y = event.scenePos().y()
+        if self.mode == 'path':
+            line = self.addLine(QLineF(self.prev_x, self.prev_y, x, y), self.path_pen)
+            self.path_items.append(line)
+            self.path.append([(x - self.center_x)*self.scale, 
+                              -1*(y - self.center_y)*self.scale])
+            self.drawing_path = True
 
-        window.map_scene.addLine(QLineF(self.prev_x, self.prev_y, x, y), self.path_pen)   
-        self.path.append([(x - self.center_x)*self.scale, 
-                          -1*(y - self.center_y)*self.scale])
-        self.prev_x = x
-        self.prev_y = y  
+            self.prev_x = x
+            self.prev_y = y 
+        elif self.mode == 'obstacle':
+            if (len(self.obstacle_items) > 0 and self.drawing_obstacle):
+                self.removeItem(self.obstacle_items[-1])
+            self.drawing_obstacle = True
+            line = self.addLine(QLineF(self.prev_x, self.prev_y, x, y), self.obstacle_pen)
+            self.obstacle_items.append(line) 
 
     def mousePressEvent(self, event):
-        pass
+        x = event.scenePos().x()
+        y = event.scenePos().y()
+        if self.mode == 'path':
+            if self.drawing_path:
+                # If already drawing, clear previous path
+                for item in self.path_items:
+                    try:
+                        item.prepareGeometryChange()
+                        self.removeItem(item)
+                    except Exception as e:
+                        print(f"Failed to remove item from scene: {e}")
+                self.path_items.clear()
+                self.path.clear()
+                self.prev_x = x
+                self.prev_y = y
+                self.path.append([(self.prev_x - self.center_x)*self.scale, 
+                             -1*(self.prev_y - self.center_y)*self.scale])
+            else:
+                self.prev_x = x
+                self.prev_y = y
+                self.path = [[(self.prev_x - self.center_x)*self.scale, 
+                              -1*(self.prev_y - self.center_y)*self.scale]]
+            self.drawing_path = False
+        elif self.mode == 'obstacle':
+            self.drawing_obstacle = False
+            self.prev_x = x
+            self.prev_y = y
 
 class Path_Tracking_Simulator(QDialog):
     def __init__(self,parent=None):
@@ -57,10 +121,10 @@ class Path_Tracking_Simulator(QDialog):
         self.ui.map_graphicsView.setScene(self.map_scene)
 
         rclpy.init(args=None)
-        self.pub_node = Node('pub_path')
-        self.pub = self.pub_node.create_publisher(Float64MultiArray, '/path', 10)
-        self.sub_node = Node('sub_observation')
-        self.sub = self.sub_node.create_subscription(TFMessage, '/world/my_world/pose/info', self.listener_callback, 10)
+        self.ros_node = Node('path_tracking_sim')
+        self.pub = self.ros_node.create_publisher(Float64MultiArray, '/path', 10)
+        self.sub = self.ros_node.create_subscription(TFMessage, '/world/my_world/pose/info', self.listener_callback, 10)
+        self.sub_odom = self.ros_node.create_subscription(Odometry, '/rwd_diff_controller/odom', self.odom_callback, 10)
 
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.update)
@@ -73,10 +137,28 @@ class Path_Tracking_Simulator(QDialog):
         self.map_scene.addLine(QLineF(250, 0, 250, 500), self.center_line) 
         self.map_scene.addLine(QLineF(0, 250, 500, 250), self.center_line)
 
-        self.diameter = 2 #pix
+        # odom localization display (green circle)
+        self.diameter = 5 #pix
         self.C = 10 #length
         self.first_time = True
         self.enable_repaint = False
+        self.odom_x = None
+        self.odom_y = None
+        self.odom_pen = QPen(Qt.darkGreen)
+
+        self.ui.draw_path_pushButton.clicked.connect(self.enable_draw_path)
+        self.ui.draw_obstacle_pushButton.clicked.connect(self.enable_draw_obstacle)
+        self.ui.clear_obstacles_pushButton.clicked.connect(self.clear_obstacles)
+
+        self.circle_radius = 50  # in pixels, default value, divided by scale = m
+        # Optionally, load from params or config file
+
+    def odom_callback(self, msg):
+        # Extract x, y from Odometry message
+        x = msg.pose.pose.position.x / self.map_scene.scale + self.map_scene.center_x
+        y = -msg.pose.pose.position.y / self.map_scene.scale + self.map_scene.center_y
+        self.odom_x = x
+        self.odom_y = y
 
     def listener_callback(self, data):
         for tfsf in data.transforms:
@@ -119,20 +201,31 @@ class Path_Tracking_Simulator(QDialog):
 
                     qpoly = QPolygonF([QPointF(p[0], p[1]) for p in points])
                     self.map_scene.addPolygon(qpoly, QPen(Qt.blue), QBrush(Qt.blue)) 
+
+                    # Draw odometry position in green if available
+                    if self.odom_x is not None and self.odom_y is not None:
+                        self.map_scene.addEllipse(self.odom_x - int(self.diameter),
+                                                  self.odom_y - int(self.diameter/2),
+                                                  self.diameter,
+                                                  self.diameter,
+                                                  self.odom_pen,
+                                                  QBrush(Qt.darkGreen))
+                    # Draw big circle around robot
+                    self.map_scene.addEllipse(x - self.circle_radius, y - self.circle_radius, 2*self.circle_radius, 2*self.circle_radius, QPen(Qt.darkMagenta))
         
         
     def update(self): 
-        rclpy.spin_once(self.sub_node, timeout_sec=0)
+        rclpy.spin_once(self.ros_node, timeout_sec=0)
 
     def publish_path(self):
         #'''
         path_to_publish = []
         path_to_publish.append(np.array(self.map_scene.path[0]))
-        nodes_interval = 0.2 # meter
+        nodes_interval = 0.04 # meter
         path_index = 1
         path_to_publish_index = 0
 
-        # removing points that are closer to each other than 0.2 meter.
+        # removing points that are closer to each other than 0.04 meter.
         while True:
             have_removed_idex = False
             for i in range(len(self.map_scene.path)-1):
@@ -144,14 +237,14 @@ class Path_Tracking_Simulator(QDialog):
                     print(f"poped index{i+1}")
                     break
             if(have_removed_idex == False):
-                print("all edges with less then 0.2 length are removed.")
+                print("all edges with less then 0.04 length are removed.")
                 break
 
         while True:
             dist = math.sqrt((path_to_publish[path_to_publish_index][0] - self.map_scene.path[path_index][0])**2 +
                              (path_to_publish[path_to_publish_index][1] - self.map_scene.path[path_index][1])**2)
 
-            if(dist >= 0.2):
+            if(dist >= nodes_interval):
                 if((self.map_scene.path[path_index-1][0] - self.map_scene.path[path_index][0]) != 0):
                     grad = (self.map_scene.path[path_index-1][1] - self.map_scene.path[path_index][1])/(self.map_scene.path[path_index-1][0] - self.map_scene.path[path_index][0])
                     x1 = nodes_interval/math.sqrt(1 + grad**2) + path_to_publish[path_to_publish_index][0]
@@ -225,6 +318,15 @@ class Path_Tracking_Simulator(QDialog):
         install_dir = Path(os.environ['HOME'] + 'ros/motion-planning/path_tracking_sim_ros2/install/robot_gazebo/share/robot_gazebo/worlds/path_tracking_stage/meshes')
         if install_dir.exists():
             cv2.imwrite(os.environ['HOME'] + 'ros/motion-planning/path_tracking_sim_ros2/install/robot_gazebo/share/robot_gazebo/worlds/path_tracking_stage/meshes/stage.png', frame)
+
+    def enable_draw_path(self):
+        self.map_scene.set_mode('path')
+
+    def enable_draw_obstacle(self):
+        self.map_scene.set_mode('obstacle')
+
+    def clear_obstacles(self):
+        self.map_scene.clear_obstacles()
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)

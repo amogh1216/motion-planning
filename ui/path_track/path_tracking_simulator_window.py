@@ -29,20 +29,32 @@ class Ui_Form(object):
         self.map_graphicsView.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
         self.map_graphicsView.setSceneRect(QtCore.QRectF(0.0, 0.0, 500.0, 500.0))
         self.map_graphicsView.setObjectName("map_graphicsView")
-        self.update_path_image_pushButton = QtWidgets.QPushButton(Form)
-        self.update_path_image_pushButton.setGeometry(QtCore.QRect(10, 520, 141, 30))
-        self.update_path_image_pushButton.setObjectName("update_path_image_pushButton")
         self.publish_path_pushButton = QtWidgets.QPushButton(Form)
         self.publish_path_pushButton.setGeometry(QtCore.QRect(160, 520, 101, 30))
         self.publish_path_pushButton.setObjectName("publish_path_pushButton")
+        
+        self.draw_path_pushButton = QtWidgets.QPushButton(Form)
+        self.draw_path_pushButton.setGeometry(QtCore.QRect(270, 520, 101, 30))
+        self.draw_path_pushButton.setObjectName("draw_path_pushButton")
+        
+        self.draw_obstacle_pushButton = QtWidgets.QPushButton(Form)
+        self.draw_obstacle_pushButton.setGeometry(QtCore.QRect(380, 520, 111, 30))
+        self.draw_obstacle_pushButton.setObjectName("draw_obstacle_pushButton")
+        self.clear_obstacles_pushButton = QtWidgets.QPushButton(Form)
+        self.clear_obstacles_pushButton.setGeometry(QtCore.QRect(10, 520, 141, 30))
+        self.clear_obstacles_pushButton.setObjectName("clear_obstacles_pushButton")
 
         self.retranslateUi(Form)
-        self.update_path_image_pushButton.clicked.connect(Form.update_path_image) # type: ignore
         self.publish_path_pushButton.clicked.connect(Form.publish_path) # type: ignore
+        self.draw_path_pushButton.clicked.connect(Form.enable_draw_path) # type: ignore
+        self.draw_obstacle_pushButton.clicked.connect(Form.enable_draw_obstacle) # type: ignore
+        self.clear_obstacles_pushButton.clicked.connect(Form.clear_obstacles) # type: ignore
         QtCore.QMetaObject.connectSlotsByName(Form)
 
     def retranslateUi(self, Form):
         _translate = QtCore.QCoreApplication.translate
         Form.setWindowTitle(_translate("Form", "Path Tracking Simulator"))
-        self.update_path_image_pushButton.setText(_translate("Form", "Update Path Image"))
         self.publish_path_pushButton.setText(_translate("Form", "Publish Path"))
+        self.draw_path_pushButton.setText(_translate("Form", "Draw Path"))
+        self.draw_obstacle_pushButton.setText(_translate("Form", "Draw Obstacle"))
+        self.clear_obstacles_pushButton.setText(_translate("Form", "Clear Obstacles"))
