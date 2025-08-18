@@ -85,22 +85,6 @@
  <resources/>
  <connections>
   <connection>
-   <sender>update_path_image_pushButton</sender>
-   <signal>clicked()</signal>
-   <receiver>Form</receiver>
-   <slot>update_path_image()</slot>
-   <hints>
-    <hint type="sourcelabel">
-     <x>80</x>
-     <y>542</y>
-    </hint>
-    <hint type="destinationlabel">
-     <x>182</x>
-     <y>534</y>
-    </hint>
-   </hints>
-  </connection>
-  <connection>
    <sender>publish_path_pushButton</sender>
    <signal>clicked()</signal>
    <receiver>Form</receiver>
@@ -118,9 +102,6 @@
   </connection>
  </connections>
  <slots>
-  <slot>update_path_image()</slot>
-  <slot>pure_pursuit()</slot>
-  <slot>mpc()</slot>
   <slot>publish_path()</slot>
  </slots>
 </ui>

@@ -72,12 +72,16 @@ class Map_GraphicsScene(QGraphicsScene):
     def mouseMoveEvent(self,event):
         x = event.scenePos().x()
         y = event.scenePos().y()
+        
         if self.mode == 'path':
-            line = self.addLine(QLineF(self.prev_x, self.prev_y, x, y), self.path_pen)
-            self.path_items.append(line)
-            self.path.append([(x - self.center_x)*self.scale, 
-                              -1*(y - self.center_y)*self.scale])
-            self.drawing_path = True
+            dist_sqd = (self.prev_x - x)**2 + (self.prev_y - y)**2
+            # ensures path resolution isn't too small while drawing
+            if dist_sqd > (self.scale ** 2):
+                line = self.addLine(QLineF(self.prev_x, self.prev_y, x, y), self.path_pen)
+                self.path_items.append(line)
+                self.path.append([(x - self.center_x)*self.scale, 
+                                -1*(y - self.center_y)*self.scale])
+                self.drawing_path = True
 
             self.prev_x = x
             self.prev_y = y 
@@ -234,24 +238,9 @@ class Path_Tracking_Simulator(QDialog):
         #'''
         path_to_publish = []
         path_to_publish.append(np.array(self.map_scene.path[0]))
-        nodes_interval = 0.04 # meter
+        nodes_interval = 0.2 # meter
         path_index = 1
         path_to_publish_index = 0
-
-        # removing points that are closer to each other than 0.04 meter.
-        while True:
-            have_removed_idex = False
-            for i in range(len(self.map_scene.path)-1):
-                distance = math.sqrt((self.map_scene.path[i+1][0] - self.map_scene.path[i][0])**2 +
-                             (self.map_scene.path[i+1][1] - self.map_scene.path[i][1])**2)
-                if(distance < 0.2):
-                    self.map_scene.path.pop(i+1)
-                    have_removed_idex = True
-                    print(f"poped index{i+1}")
-                    break
-            if(have_removed_idex == False):
-                print("all edges with less then 0.04 length are removed.")
-                break
 
         while True:
             dist = math.sqrt((path_to_publish[path_to_publish_index][0] - self.map_scene.path[path_index][0])**2 +
@@ -296,13 +285,14 @@ class Path_Tracking_Simulator(QDialog):
                 self.enable_repaint = True
                 break
 
+            # arbitrary upper limit to (drawn) path size
             if path_to_publish_index > 10000:
                 self.map_scene.reset_path()
                 self.map_scene.clear()
                 path_to_publish.clear()
                 self.map_scene.addLine(QLineF(250, 0, 250, 500), self.center_line) 
                 self.map_scene.addLine(QLineF(0, 250, 500, 250), self.center_line)
-                print("path generation failed. Please draw another path.")
+                print(f"path generation failed. Please draw another path.")
                 path_to_publish_np = np.array(path_to_publish)
                 path_pub = Float64MultiArray(data=np.ravel(path_to_publish_np))    
                 self.pub.publish(path_pub) 
@@ -312,20 +302,7 @@ class Path_Tracking_Simulator(QDialog):
         path_to_publish_np = np.array(path_to_publish)
         print(f"done!")
         path_pub = Float64MultiArray(data=np.ravel(path_to_publish_np))    
-        self.pub.publish(path_pub) 
-
-    def pixmap_to_cv(self, pixmap):
-        qimage = pixmap.toImage()
-        w, h, d = qimage.size().width(), qimage.size().height(), qimage.depth()
-        bytes_ = qimage.bits().asstring(w * h * d // 8)
-        arr = np.frombuffer(bytes_, dtype=np.uint8).reshape((h, w, d // 8))
-        im_bgr = cv2.cvtColor(arr, cv2.COLOR_BGRA2BGR)
-        return im_bgr
-    
-    def update_path_image(self):
-        pixmap2cv = self.ui.map_graphicsView.grab(QRect(QPoint(1,1),QSize(500, 500)))
-        frame = self.pixmap_to_cv(pixmap2cv)
-        frame = cv2.resize(frame, (1000, 1000))
+        self.pub.publish(path_pub)
 
     def enable_draw_path(self):
         self.map_scene.set_mode('path')
