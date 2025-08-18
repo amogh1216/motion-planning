@@ -39,22 +39,15 @@ class Map_GraphicsScene(QGraphicsScene):
         self.obstacle_items = []
         self.drawing_path = False
         self.drawing_obstacle = False
+        self.obstacles = []  # 2D array: [[x1, y1, x2, y2], ...]
 
     def set_mode(self, mode):
         self.mode = mode
         if mode == 'path':
-            # Clear previous path drawing
-            for item in self.path_items:
-                self.removeItem(item)
-            self.path_items.clear()
-            self.path.clear()
-            self.prev_x = self.center_x
-            self.prev_y = self.center_y
-            self.path.append([(self.prev_x - self.center_x)*self.scale, 
-                         -1*(self.prev_y - self.center_y)*self.scale])
+            self.clear_path()
         # Do not clear obstacles when switching to obstacle mode
 
-    def reset_path(self):
+    def clear_path(self):
         for item in self.path_items:
             self.removeItem(item)
         self.path_items.clear()
@@ -68,6 +61,7 @@ class Map_GraphicsScene(QGraphicsScene):
         for item in self.obstacle_items:
             self.removeItem(item)
         self.obstacle_items.clear()
+        self.obstacles.clear()
 
     def mouseMoveEvent(self,event):
         x = event.scenePos().x()
@@ -90,14 +84,18 @@ class Map_GraphicsScene(QGraphicsScene):
                 self.removeItem(self.obstacle_items[-1])
             self.drawing_obstacle = True
             line = self.addLine(QLineF(self.prev_x, self.prev_y, x, y), self.obstacle_pen)
-            self.obstacle_items.append(line) 
+            self.obstacle_items.append(line)
+            # Update or add the current obstacle in the array
+            if len(self.obstacles) > 0:
+                self.obstacles[-1] = [self.prev_x, self.prev_y, x, y]
+            print(f"obstacle at idx {len(self.obstacles)-1} is {self.obstacles[-1]}")
 
     def mousePressEvent(self, event):
         x = event.scenePos().x()
         y = event.scenePos().y()
         if self.mode == 'path':
             if len(self.path) == 0:
-                self.reset_path()
+                self.clear_path()
             if self.drawing_path:
                 # If already drawing, clear previous path
                 for item in self.path_items:
@@ -118,6 +116,52 @@ class Map_GraphicsScene(QGraphicsScene):
             self.drawing_obstacle = False
             self.prev_x = x
             self.prev_y = y
+            # Start a new obstacle entry
+            self.obstacles.append([self.prev_x, self.prev_y, self.prev_x, self.prev_y])
+
+    def get_ray_obstacle_intersections(self, rays, obstacles):
+        intersections = []
+        for ray in rays:
+            x1, y1, x2, y2 = ray
+            for obs in obstacles:
+                x3, y3, x4, y4 = obs
+                denom = (x1-x2)*(y3-y4) - (y1-y2)*(x3-x4)
+                if denom == 0:
+                    continue  # Parallel lines
+                px = ((x1*y2 - y1*x2)*(x3-x4) - (x1-x2)*(x3*y4 - y3*x4)) / denom
+                py = ((x1*y2 - y1*x2)*(y3-y4) - (y1-y2)*(x3*y4 - y3*x4)) / denom
+                # Check if intersection is within both segments
+                if (min(x1, x2)-1e-6 <= px <= max(x1, x2)+1e-6 and
+                    min(y1, y2)-1e-6 <= py <= max(y1, y2)+1e-6 and
+                    min(x3, x4)-1e-6 <= px <= max(x3, x4)+1e-6 and
+                    min(y3, y4)-1e-6 <= py <= max(y3, y4)+1e-6):
+                    intersections.append((px, py))
+        return intersections
+    
+    def get_single_ray_obstacle_intersections(self, ray, obstacles):
+        x1, y1, x2, y2 = ray
+        closest_dist = None
+        closest_point = None
+        for obs in obstacles:
+            x3, y3, x4, y4 = obs
+            denom = (x1-x2)*(y3-y4) - (y1-y2)*(x3-x4)
+            if denom == 0:
+                continue  # Parallel lines
+            px = ((x1*y2 - y1*x2)*(x3-x4) - (x1-x2)*(x3*y4 - y3*x4)) / denom
+            py = ((x1*y2 - y1*x2)*(y3-y4) - (y1-y2)*(x3*y4 - y3*x4)) / denom
+            # Check if intersection is within both segments
+            if (min(x1, x2)-1e-6 <= px <= max(x1, x2)+1e-6 and
+                min(y1, y2)-1e-6 <= py <= max(y1, y2)+1e-6 and
+                min(x3, x4)-1e-6 <= px <= max(x3, x4)+1e-6 and
+                min(y3, y4)-1e-6 <= py <= max(y3, y4)+1e-6):
+                dist = math.hypot(px - x1, py - y1)
+                if closest_dist is None or dist < closest_dist:
+                    closest_dist = dist
+                    closest_point =  [px, py]
+        if closest_point is not None:
+            return closest_point
+        else:
+            return None
 
 class Path_Tracking_Simulator(QDialog):
     def __init__(self,parent=None):
@@ -162,6 +206,8 @@ class Path_Tracking_Simulator(QDialog):
         self.circle_radius = 50  # in pixels, default value, divided by scale = m
         self.num_rays = 6
         self.effective_range = math.pi
+        self.rays = [] # 2D array: [[x1, y1, x2, y2], ...]
+        self.point_cloud = [] # intersecting points from rays and obstacles
         # Optionally, load from params or config file
 
     def odom_callback(self, msg):
@@ -203,13 +249,24 @@ class Path_Tracking_Simulator(QDialog):
                                               self.vehicle_pen, QBrush(Qt.red))
                     self.pixmap = self.ui.map_graphicsView.grab(QRect(QPoint(0,0),QSize(500, 500)))
 
+                    self.point_cloud.clear()
+                    self.rays.clear()
                     # Draw lines every X degrees from robot position, first line in robot's heading - range/2
                     for i in range(self.num_rays+1):
                         theta = -angle - math.pi/2 - self.effective_range/2 + (i * self.effective_range / self.num_rays) 
                         # first line = heading, then every 60 deg
                         x2 = x + self.circle_radius * math.cos(theta)
                         y2 = y + self.circle_radius * math.sin(theta)
-                        self.map_scene.addLine(x, y, x2, y2, QPen(Qt.darkMagenta, 2))
+                        pt = self.map_scene.get_single_ray_obstacle_intersections([x, y, x2, y2], self.map_scene.obstacles)
+                        if pt is None:
+                            self.map_scene.addLine(x, y, x2, y2, QPen(Qt.darkMagenta, 2))
+                        else:
+                            self.point_cloud.append(pt)
+                            self.map_scene.addLine(x, y, pt[0], pt[1], QPen(Qt.darkMagenta, 2))
+                        self.rays.append([x, y, x2, y2])
+
+                    print(f"num intersections: {len(self.map_scene.get_ray_obstacle_intersections(self.rays, self.map_scene.obstacles))}")
+                    print(f"point cloud: {self.point_cloud}")
 
                     points = [[x - self.C*math.sin(angle), y - self.C*math.cos(angle)], 
                               [x - math.cos(angle)*self.C/2 + math.sqrt(3)*math.sin(angle)*self.C/2,
@@ -287,8 +344,7 @@ class Path_Tracking_Simulator(QDialog):
 
             # arbitrary upper limit to (drawn) path size
             if path_to_publish_index > 10000:
-                self.map_scene.reset_path()
-                self.map_scene.clear()
+                self.map_scene.clear_path()
                 path_to_publish.clear()
                 self.map_scene.addLine(QLineF(250, 0, 250, 500), self.center_line) 
                 self.map_scene.addLine(QLineF(0, 250, 500, 250), self.center_line)
