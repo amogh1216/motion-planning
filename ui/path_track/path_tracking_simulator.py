@@ -217,6 +217,28 @@ class Path_Tracking_Simulator(QDialog):
         self.odom_x = x
         self.odom_y = y
 
+    def update_lidar_point_cloud(self, x, y, angle):
+        self.point_cloud.clear()
+        self.rays.clear()
+        # Draw lines every X degrees from robot position, first line in robot's heading - range/2
+        for i in range(self.num_rays+1):
+            theta = -angle - math.pi/2 - self.effective_range/2 + (i * self.effective_range / self.num_rays) 
+            # first line = heading, then every 60 deg
+            x2 = x + self.circle_radius * math.cos(theta)
+            y2 = y + self.circle_radius * math.sin(theta)
+            pt = self.map_scene.get_single_ray_obstacle_intersections([x, y, x2, y2], self.map_scene.obstacles)
+            semi_transparent_magenta = QColor(Qt.darkMagenta)
+            semi_transparent_magenta.setAlpha(50)
+            if pt is None:
+                self.map_scene.addLine(x, y, x2, y2, QPen(semi_transparent_magenta, 2))
+            else:
+                self.point_cloud.append(pt)
+                self.map_scene.addLine(x, y, pt[0], pt[1], QPen(semi_transparent_magenta, 2))
+            self.rays.append([x, y, x2, y2])
+
+        print(f"num intersections: {len(self.map_scene.get_ray_obstacle_intersections(self.rays, self.map_scene.obstacles))}")
+        print(f"point cloud: {self.point_cloud}")
+
     def listener_callback(self, data):
         for tfsf in data.transforms:
             if(tfsf.child_frame_id == 'rwd_bot'):
@@ -242,6 +264,7 @@ class Path_Tracking_Simulator(QDialog):
                     self.map_scene.addLine(QLineF(0, 250, 500, 250), self.center_line)
                     self.ui.map_graphicsView.setScene(self.map_scene)
 
+                    # red path tracker
                     self.map_scene.addEllipse(x - int(self.diameter),
                                               y - int(self.diameter/2), 
                                               self.diameter,
@@ -249,31 +272,14 @@ class Path_Tracking_Simulator(QDialog):
                                               self.vehicle_pen, QBrush(Qt.red))
                     self.pixmap = self.ui.map_graphicsView.grab(QRect(QPoint(0,0),QSize(500, 500)))
 
-                    self.point_cloud.clear()
-                    self.rays.clear()
-                    # Draw lines every X degrees from robot position, first line in robot's heading - range/2
-                    for i in range(self.num_rays+1):
-                        theta = -angle - math.pi/2 - self.effective_range/2 + (i * self.effective_range / self.num_rays) 
-                        # first line = heading, then every 60 deg
-                        x2 = x + self.circle_radius * math.cos(theta)
-                        y2 = y + self.circle_radius * math.sin(theta)
-                        pt = self.map_scene.get_single_ray_obstacle_intersections([x, y, x2, y2], self.map_scene.obstacles)
-                        if pt is None:
-                            self.map_scene.addLine(x, y, x2, y2, QPen(Qt.darkMagenta, 2))
-                        else:
-                            self.point_cloud.append(pt)
-                            self.map_scene.addLine(x, y, pt[0], pt[1], QPen(Qt.darkMagenta, 2))
-                        self.rays.append([x, y, x2, y2])
+                    self.update_lidar_point_cloud(x, y, angle)
 
-                    print(f"num intersections: {len(self.map_scene.get_ray_obstacle_intersections(self.rays, self.map_scene.obstacles))}")
-                    print(f"point cloud: {self.point_cloud}")
-
+                    # draw blue robot position + orientation
                     points = [[x - self.C*math.sin(angle), y - self.C*math.cos(angle)], 
                               [x - math.cos(angle)*self.C/2 + math.sqrt(3)*math.sin(angle)*self.C/2,
                                y + math.sin(angle)*self.C/2 + math.sqrt(3)*math.cos(angle)*self.C/2],
                               [x + math.cos(angle)*self.C/2 + math.sqrt(3)*math.sin(angle)*self.C/2,
                                y - math.sin(angle)*self.C/2 + math.sqrt(3)*math.cos(angle)*self.C/2]]
-
                     qpoly = QPolygonF([QPointF(p[0], p[1]) for p in points])
                     self.map_scene.addPolygon(qpoly, QPen(Qt.blue), QBrush(Qt.blue)) 
 
@@ -285,55 +291,32 @@ class Path_Tracking_Simulator(QDialog):
                                                   self.diameter,
                                                   self.odom_pen,
                                                   QBrush(Qt.darkGreen))
-                    # Draw big circle around robot
+                    
+                    # Draw big circle around robot, lidar range
                     self.map_scene.addEllipse(x - self.circle_radius, y - self.circle_radius, 2*self.circle_radius, 2*self.circle_radius, QPen(Qt.darkMagenta))
         
     def update(self): 
         rclpy.spin_once(self.ros_node, timeout_sec=0)
 
     def publish_path(self):
-        #'''
         path_to_publish = []
         path_to_publish.append(np.array(self.map_scene.path[0]))
-        nodes_interval = 0.2 # meter
+        nodes_interval = 0.04 # meter
         path_index = 1
         path_to_publish_index = 0
+        print(f"len {len(self.map_scene.path)}")
 
-        while True:
-            dist = math.sqrt((path_to_publish[path_to_publish_index][0] - self.map_scene.path[path_index][0])**2 +
-                             (path_to_publish[path_to_publish_index][1] - self.map_scene.path[path_index][1])**2)
+        while True:            
+            currpt = np.array(path_to_publish[path_to_publish_index])
+            targetpt = np.array(self.map_scene.path[path_index])
+            direction = targetpt - currpt
+            distance = np.linalg.norm(direction)
 
-            if(dist >= nodes_interval):
-                if((self.map_scene.path[path_index-1][0] - self.map_scene.path[path_index][0]) != 0):
-                    grad = (self.map_scene.path[path_index-1][1] - self.map_scene.path[path_index][1])/(self.map_scene.path[path_index-1][0] - self.map_scene.path[path_index][0])
-                    x1 = nodes_interval/math.sqrt(1 + grad**2) + path_to_publish[path_to_publish_index][0]
-                    x2 = -nodes_interval/math.sqrt(1 + grad**2) + path_to_publish[path_to_publish_index][0]
-
-                    p1 = np.array([x1, (x1 - path_to_publish[path_to_publish_index][0])*grad + path_to_publish[path_to_publish_index][1]])
-                    p2 = np.array([x2, (x2 - path_to_publish[path_to_publish_index][0])*grad + path_to_publish[path_to_publish_index][1]])
-                    path_target_node = np.array(self.map_scene.path[path_index])
-                    A = path_target_node - path_to_publish[path_to_publish_index]
-                    B = p2 - path_to_publish[path_to_publish_index]
-                    C = p1 - path_to_publish[path_to_publish_index]
-                    cos_theta1 = A@B/(np.linalg.norm(A)*np.linalg.norm(B))
-                    cos_theta2 = A@C/(np.linalg.norm(A)*np.linalg.norm(C))
-                    if(cos_theta1 < cos_theta2):
-                        path_to_publish.append(p1)
-                        path_to_publish_index += 1
-                    else:
-                        path_to_publish.append(p2)
-                        path_to_publish_index += 1     
-                else:
-                    x = self.map_scene.path[path_index-1][0]
-                    y1 = path_to_publish[path_to_publish_index][1] + 0.2
-                    y2 = path_to_publish[path_to_publish_index][1] - 0.2
-
-                    if(path_to_publish[path_to_publish_index][1] <= y1 <= self.map_scene.path[path_index][1]):
-                        path_to_publish.append(np.array([x,y1]))
-                    else:
-                        path_to_publish.append(np.array([x,y2]))
-
-                    path_to_publish_index += 1
+            if(distance >= nodes_interval):
+                unit_d = direction / distance
+                nextpt = currpt + (unit_d * nodes_interval)
+                path_to_publish.append(nextpt)
+                path_to_publish_index += 1
             else:
                 path_index += 1
 
@@ -342,7 +325,7 @@ class Path_Tracking_Simulator(QDialog):
                 self.enable_repaint = True
                 break
 
-            # arbitrary upper limit to (drawn) path size
+            # upper limit to path size
             if path_to_publish_index > 10000:
                 self.map_scene.clear_path()
                 path_to_publish.clear()
@@ -354,7 +337,7 @@ class Path_Tracking_Simulator(QDialog):
                 self.pub.publish(path_pub) 
                 return
 
-        print(path_to_publish)
+        print(f"len ptp: {len(path_to_publish)}")
         path_to_publish_np = np.array(path_to_publish)
         print(f"done!")
         path_pub = Float64MultiArray(data=np.ravel(path_to_publish_np))    
