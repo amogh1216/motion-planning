@@ -20,6 +20,7 @@ from rclpy.node import Node
 from std_msgs.msg import Float64MultiArray
 from tf2_msgs.msg import TFMessage
 from nav_msgs.msg import Odometry
+from geometry_msgs.msg import PoseStamped
 
 class Map_GraphicsScene(QGraphicsScene):
     def __init__(self, parent=None):
@@ -180,7 +181,7 @@ class Path_Tracking_Simulator(QDialog):
         self.ros_node = Node('path_tracking_sim')
         self.pub = self.ros_node.create_publisher(Float64MultiArray, '/path', 10)
         self.sub = self.ros_node.create_subscription(TFMessage, '/world/my_world/pose/info', self.listener_callback, 10)
-        self.sub_odom = self.ros_node.create_subscription(Odometry, '/rwd_diff_controller/odom', self.odom_callback, 10)
+        self.sub_odom = self.ros_node.create_subscription(PoseStamped, '/get_pose_est', self.odom_callback, 10)
 
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.update)
@@ -212,14 +213,14 @@ class Path_Tracking_Simulator(QDialog):
         self.rays = [] # 2D array: [[x1, y1, x2, y2], ...]
         self.point_cloud = [] # intersecting points from rays and obstacles
         self.build_map = True
+        self.estimation_mode = False # estimation_mode => using non-truth pose localization
         # Optionally, load from params or config file
 
     def odom_callback(self, msg):
-        # Extract x, y from Odometry message
-        x = msg.pose.pose.position.x / self.map_scene.scale + self.map_scene.center_x
-        y = -msg.pose.pose.position.y / self.map_scene.scale + self.map_scene.center_y
-        self.odom_x = x
-        self.odom_y = y
+        # Extract x, y, heading (imu) from Odometry message
+        self.odom_x = msg.pose.position.x / self.map_scene.scale + self.map_scene.center_x
+        self.odom_y = -msg.pose.position.y / self.map_scene.scale + self.map_scene.center_y
+        self.odom_angle = msg.pose.position.z
 
     def update_lidar_point_cloud(self, x, y, angle):
         self.point_cloud.clear()
@@ -247,6 +248,15 @@ class Path_Tracking_Simulator(QDialog):
             self.rays.append([x, y, x2, y2])
 
         print(f"point cloud: {self.point_cloud}")
+
+    def draw_robot(self, x, y, angle, color):
+        points = [[x - self.C*math.sin(angle), y - self.C*math.cos(angle)], 
+                              [x - math.cos(angle)*self.C/2 + math.sqrt(3)*math.sin(angle)*self.C/2,
+                               y + math.sin(angle)*self.C/2 + math.sqrt(3)*math.cos(angle)*self.C/2],
+                              [x + math.cos(angle)*self.C/2 + math.sqrt(3)*math.sin(angle)*self.C/2,
+                               y - math.sin(angle)*self.C/2 + math.sqrt(3)*math.cos(angle)*self.C/2]]
+        qpoly = QPolygonF([QPointF(p[0], p[1]) for p in points])
+        self.map_scene.addPolygon(qpoly, QPen(color), QBrush(color))
 
     def listener_callback(self, data):
         for tfsf in data.transforms:
@@ -284,22 +294,14 @@ class Path_Tracking_Simulator(QDialog):
                     self.update_lidar_point_cloud(x, y, angle)
 
                     # draw blue robot position + orientation
-                    points = [[x - self.C*math.sin(angle), y - self.C*math.cos(angle)], 
-                              [x - math.cos(angle)*self.C/2 + math.sqrt(3)*math.sin(angle)*self.C/2,
-                               y + math.sin(angle)*self.C/2 + math.sqrt(3)*math.cos(angle)*self.C/2],
-                              [x + math.cos(angle)*self.C/2 + math.sqrt(3)*math.sin(angle)*self.C/2,
-                               y - math.sin(angle)*self.C/2 + math.sqrt(3)*math.cos(angle)*self.C/2]]
-                    qpoly = QPolygonF([QPointF(p[0], p[1]) for p in points])
-                    self.map_scene.addPolygon(qpoly, QPen(Qt.blue), QBrush(Qt.blue)) 
+                    self.draw_robot(x, y, angle, Qt.blue)
 
                     # Draw odometry position in green if available
-                    if self.odom_x is not None and self.odom_y is not None:
-                        self.map_scene.addEllipse(self.odom_x - int(self.diameter),
-                                                  self.odom_y - int(self.diameter/2),
-                                                  self.diameter,
-                                                  self.diameter,
-                                                  self.odom_pen,
-                                                  QBrush(Qt.darkGreen))
+                    if self.odom_x is not None and self.odom_y is not None and self.odom_angle is not None:
+                        dark_green = QColor(Qt.darkGreen)
+                        dark_green.setAlpha(100)
+                        print(f'diff {angle} - {self.odom_angle} = {angle-self.odom_angle}')
+                        self.draw_robot(self.odom_x, self.odom_y, self.odom_angle - math.pi/2, dark_green)
                             
     def update(self): 
         rclpy.spin_once(self.ros_node, timeout_sec=0)

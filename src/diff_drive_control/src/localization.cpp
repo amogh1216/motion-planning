@@ -26,9 +26,12 @@ public:
     LocalizationNode() : Node("localization_node")
     {
 
-        // Publisher for the current pose
+        // Publisher for the current pose (truth)
         pose_pub_ = this->
             create_publisher<geometry_msgs::msg::PoseStamped>("/get_pose", 10);
+
+        pose_est_pub_ = this->
+            create_publisher<geometry_msgs::msg::PoseStamped>("/get_pose_est", 10);
 
         // Create IMU subscriber
         imu_subscriber_ = this->create_subscription<sensor_msgs::msg::Imu>(
@@ -59,7 +62,7 @@ public:
 
         // loads localizer mode: 'truth' (gazebo) or 'odom' (diffdrivecontroller)
         log_timer_ = this->create_wall_timer(
-            std::chrono::milliseconds(200),   // change interval as needed
+            std::chrono::milliseconds(80),   // change interval as needed
             std::bind(&LocalizationNode::callback, this)
         );
     }
@@ -181,6 +184,14 @@ private:
         logPoseData("TRUTH", truth_pose_);
         this->get_parameter("mode", localizer);
 
+        geometry_msgs::msg::PoseStamped est_;
+        est_.header.stamp = this->now();
+        pose_msg.pose.position.x = odom_pose_.x;
+        pose_msg.pose.position.y = odom_pose_.y;
+        pose_msg.pose.position.z = imu_pose_.heading;
+        pose_est_pub_->publish(pose_msg);
+
+
         if (localizer != "odom" and localizer != "truth")
         {
             RCLCPP_ERROR(this->get_logger(), "Localization mode set to %s. Should be set to either \"odom\" or \"truth.\" ", localizer.c_str());
@@ -190,6 +201,7 @@ private:
 
     
     rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr pose_pub_;
+    rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr pose_est_pub_;
 
     rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr imu_subscriber_;
     rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_subscriber_;
