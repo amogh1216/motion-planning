@@ -15,13 +15,15 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 class Ui_Form(object):
     def setupUi(self, Form):
         Form.setObjectName("Form")
-        Form.resize(521, 560)
+        Form.resize(1040, 560)
         self.map_graphicsView = QtWidgets.QGraphicsView(Form)
         self.map_graphicsView.setGeometry(QtCore.QRect(10, 10, 500, 500))
         sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Fixed)
         sizePolicy.setHorizontalStretch(0)
         sizePolicy.setVerticalStretch(0)
         sizePolicy.setHeightForWidth(self.map_graphicsView.sizePolicy().hasHeightForWidth())
+
+        # screen 1: robot localization map -- main interface
         self.map_graphicsView.setSizePolicy(sizePolicy)
         self.map_graphicsView.setMinimumSize(QtCore.QSize(500, 500))
         self.map_graphicsView.setBaseSize(QtCore.QSize(500, 500))
@@ -32,11 +34,30 @@ class Ui_Form(object):
         self.publish_path_pushButton = QtWidgets.QPushButton(Form)
         self.publish_path_pushButton.setGeometry(QtCore.QRect(160, 520, 101, 30))
         self.publish_path_pushButton.setObjectName("publish_path_pushButton")
+
+        # screen 2: lidar point cloud map
+        self.map_lidarView = QtWidgets.QGraphicsView(Form)
+        self.map_lidarView.setGeometry(QtCore.QRect(530, 10, 500, 500))
+        sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Fixed)
+        sizePolicy.setHorizontalStretch(0)
+        sizePolicy.setVerticalStretch(0)
+        sizePolicy.setHeightForWidth(self.map_lidarView.sizePolicy().hasHeightForWidth())
+
+        # Configure the map_lidarView widget
+        self.map_lidarView.setSizePolicy(sizePolicy)
+        self.map_lidarView.setMinimumSize(QtCore.QSize(500, 500))
+        self.map_lidarView.setBaseSize(QtCore.QSize(500, 500))
+        self.map_lidarView.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        self.map_lidarView.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        self.map_lidarView.setSceneRect(QtCore.QRectF(0.0, 0.0, 500.0, 500.0))
+        self.map_lidarView.setObjectName("map_lidarView")
         
+        # draw path button
         self.draw_path_pushButton = QtWidgets.QPushButton(Form)
         self.draw_path_pushButton.setGeometry(QtCore.QRect(270, 520, 101, 30))
         self.draw_path_pushButton.setObjectName("draw_path_pushButton")
         
+        # draw obstacle button
         self.draw_obstacle_pushButton = QtWidgets.QPushButton(Form)
         self.draw_obstacle_pushButton.setGeometry(QtCore.QRect(380, 520, 111, 30))
         self.draw_obstacle_pushButton.setObjectName("draw_obstacle_pushButton")

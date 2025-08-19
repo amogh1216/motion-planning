@@ -173,6 +173,9 @@ class Path_Tracking_Simulator(QDialog):
         self.map_scene = Map_GraphicsScene(self.ui.map_graphicsView)
         self.ui.map_graphicsView.setScene(self.map_scene)
 
+        self.lidar_scene = QGraphicsScene(self.ui.map_lidarView)
+        self.ui.map_lidarView.setScene(self.lidar_scene)
+
         rclpy.init(args=None)
         self.ros_node = Node('path_tracking_sim')
         self.pub = self.ros_node.create_publisher(Float64MultiArray, '/path', 10)
@@ -203,11 +206,12 @@ class Path_Tracking_Simulator(QDialog):
         self.ui.draw_obstacle_pushButton.clicked.connect(self.enable_draw_obstacle)
         self.ui.clear_obstacles_pushButton.clicked.connect(self.clear_obstacles)
 
-        self.circle_radius = 50  # in pixels, default value, divided by scale = m
-        self.num_rays = 6
+        self.circle_radius = 500  # in pixels, default value, divided by scale = m
+        self.num_rays = 24
         self.effective_range = math.pi
         self.rays = [] # 2D array: [[x1, y1, x2, y2], ...]
         self.point_cloud = [] # intersecting points from rays and obstacles
+        self.build_map = True
         # Optionally, load from params or config file
 
     def odom_callback(self, msg):
@@ -220,6 +224,10 @@ class Path_Tracking_Simulator(QDialog):
     def update_lidar_point_cloud(self, x, y, angle):
         self.point_cloud.clear()
         self.rays.clear()
+
+        if (not self.build_map):
+            self.lidar_scene.clear()  # Clear the lidar view before updating
+
         # Draw lines every X degrees from robot position, first line in robot's heading - range/2
         for i in range(self.num_rays+1):
             theta = -angle - math.pi/2 - self.effective_range/2 + (i * self.effective_range / self.num_rays) 
@@ -234,9 +242,10 @@ class Path_Tracking_Simulator(QDialog):
             else:
                 self.point_cloud.append(pt)
                 self.map_scene.addLine(x, y, pt[0], pt[1], QPen(semi_transparent_magenta, 2))
+                # Add the intersection point to the lidar view
+                self.lidar_scene.addEllipse(pt[0] - 2, pt[1] - 2, 4, 4, QPen(Qt.red), QBrush(Qt.red))
             self.rays.append([x, y, x2, y2])
 
-        print(f"num intersections: {len(self.map_scene.get_ray_obstacle_intersections(self.rays, self.map_scene.obstacles))}")
         print(f"point cloud: {self.point_cloud}")
 
     def listener_callback(self, data):
@@ -291,10 +300,7 @@ class Path_Tracking_Simulator(QDialog):
                                                   self.diameter,
                                                   self.odom_pen,
                                                   QBrush(Qt.darkGreen))
-                    
-                    # Draw big circle around robot, lidar range
-                    self.map_scene.addEllipse(x - self.circle_radius, y - self.circle_radius, 2*self.circle_radius, 2*self.circle_radius, QPen(Qt.darkMagenta))
-        
+                            
     def update(self): 
         rclpy.spin_once(self.ros_node, timeout_sec=0)
 
