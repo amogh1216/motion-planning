@@ -38,15 +38,11 @@
   <xacro:include filename="./wheel.xacro"/>
 
   <!-- Instantiate wheels -->
-  <!-- <xacro:wheel name="wheel_fl" parent_link="base_link" xyz="${wheel_x} ${wheel_y} ${wheel_z}"/>
-  <xacro:wheel name="wheel_fr" parent_link="base_link" xyz="${wheel_x} ${-wheel_y} ${wheel_z}"/> -->
   <xacro:wheel name="wheel_rl" parent_link="base_link" xyz="${-wheel_x} ${wheel_y} ${wheel_z}"/>
   <xacro:wheel name="wheel_rr" parent_link="base_link" xyz="${-wheel_x} ${-wheel_y} ${wheel_z}"/>
 
   <xacro:include filename="$(find diff_drive_control)/urdf/imu.xacro"/>
   <xacro:imu_sensor xyz="0 0 0.05" rpy="${origin}" parent="base_link"/>
-  <!-- <xacro:include filename="$(find diff_drive_control)/urdf/lidar.xacro"/>
-  <xacro:lidar_sensor xyz="0 0 0.08" rpy="${origin}" parent="base_link"/> -->
 
   <ros2_control name="GazeboSimSystem" type="system">
     <hardware>
@@ -85,13 +81,17 @@
     </plugin>
   </gazebo>
 
-  <gazebo reference="wheel_fl">
-    <mu1 value="0.0"/>
-    <mu2 value="0.0"/>
+  <gazebo reference="wheel_rl">
+    <mu1 value="0.17"/>
+    <mu2 value="0.085"/>
+    <slip1>0.2</slip1>
+    <slip2>0.2</slip2>
   </gazebo>
-  <gazebo reference="wheel_fr">
-    <mu1 value="0.0"/>
-    <mu2 value="0.0"/>
+  <gazebo reference="wheel_rr">
+    <mu1 value="0.17"/>
+    <mu2 value="0.085"/>
+    <slip1>0.2</slip1>
+    <slip2>0.2</slip2>
   </gazebo>
 
 </robot>
