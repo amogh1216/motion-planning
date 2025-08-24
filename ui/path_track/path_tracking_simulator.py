@@ -7,6 +7,7 @@ import math
 import numpy as np
 import cv2
 from pathlib import Path
+import yaml
 
 from PyQt5.Qt import *
 from PyQt5.QtCore import *
@@ -19,7 +20,6 @@ import rclpy
 from rclpy.node import Node
 from std_msgs.msg import Float64MultiArray
 from tf2_msgs.msg import TFMessage
-from nav_msgs.msg import Odometry
 from geometry_msgs.msg import PoseStamped
 
 class Map_GraphicsScene(QGraphicsScene):
@@ -89,7 +89,6 @@ class Map_GraphicsScene(QGraphicsScene):
             # Update or add the current obstacle in the array
             if len(self.obstacles) > 0:
                 self.obstacles[-1] = [self.prev_x, self.prev_y, x, y]
-            # print(f"obstacle at idx {len(self.obstacles)-1} is {self.obstacles[-1]}")
 
     def mousePressEvent(self, event):
         x = event.scenePos().x()
@@ -165,71 +164,111 @@ class Map_GraphicsScene(QGraphicsScene):
             return None
 
 class Path_Tracking_Simulator(QDialog):
-    def __init__(self,parent=None):
+    def __init__(self, parent=None):
 
         super(Path_Tracking_Simulator, self).__init__(parent)
         self.ui = Ui_Form()
         self.ui.setupUi(self)
 
+        # Load parameters from YAML file
+        params_file = Path(__file__).parent / 'ui_simulator_params.yaml'
+        with open(params_file, 'r') as file:
+            params = yaml.safe_load(file)
+
+        # Map parameters
+        map_params = params['map']
         self.map_scene = Map_GraphicsScene(self.ui.map_graphicsView)
+        self.map_scene.scale = map_params['scale']
+        self.map_scene.center_x = map_params['center_x']
+        self.map_scene.center_y = map_params['center_y']
         self.ui.map_graphicsView.setScene(self.map_scene)
+
+        # Lidar parameters
+        lidar_params = params['lidar']
+        self.circle_radius = lidar_params['circle_radius']
+        self.num_rays = lidar_params['num_rays']
+        self.effective_range = lidar_params['effective_range']
+        self.point_cloud_stdev = lidar_params['point_cloud_stdev'] / self.map_scene.scale
+        self.lidar_update_interval = lidar_params['update_interval']
+        self.build_map = lidar_params['build_map']
+        self.estimation_mode = lidar_params['estimation_mode'] 
 
         self.lidar_scene = QGraphicsScene(self.ui.map_lidarView)
         self.ui.map_lidarView.setScene(self.lidar_scene)
 
+        # Robot parameters
+        robot_params = params['robot']
+        self.diameter = robot_params['diameter']
+        self.C = robot_params['length']
+
+        # ROS parameters
+        ros_params = params['ros']
         rclpy.init(args=None)
-        self.ros_node = Node('path_tracking_sim')
-        self.pub = self.ros_node.create_publisher(Float64MultiArray, '/path', 10)
-        self.sub = self.ros_node.create_subscription(TFMessage, '/world/my_world/pose/info', self.listener_callback, 10)
-        self.sub_odom = self.ros_node.create_subscription(PoseStamped, '/get_pose_est', self.odom_callback, 10)
+        self.ros_node = Node(ros_params['node_name'])
+        self.pub = self.ros_node.create_publisher(Float64MultiArray, ros_params['path_topic'], 10)
+        self.sub = self.ros_node.create_subscription(TFMessage, ros_params['tf_topic'], self.listener_callback, 10)
+        self.sub_odom = self.ros_node.create_subscription(PoseStamped, ros_params['pose_topic'], self.odom_callback, 10)
+
+        # Path generation parameters
+        path_params = params['path']
+        self.nodes_interval = path_params['nodes_interval']
+        self.max_path_size = path_params['max_path_size']
 
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.update)
-        self.timer.start(10)      
+        self.timer.start(10)
 
         self.pixmap = QPixmap(500, 500)
         self.vehicle_pen = QPen(Qt.red)
-        self.center_line=QPen(Qt.black)
+        self.center_line = QPen(Qt.black)
         self.center_line.setStyle(Qt.DashLine)
-        self.map_scene.addLine(QLineF(250, 0, 250, 500), self.center_line) 
+        self.map_scene.addLine(QLineF(250, 0, 250, 500), self.center_line)
         self.map_scene.addLine(QLineF(0, 250, 500, 250), self.center_line)
 
-        # odom localization display (green circle)
-        self.diameter = 2 #pix
-        self.C = 5 #length
         self.first_time = True
         self.enable_repaint = False
-        self.odom_x = None
-        self.odom_y = None
+        self.odom_pose_2d = [None, None, None]  # [x, y, angle]
         self.odom_pen = QPen(Qt.darkGreen)
+        self.truth_pose_2d = [0, 0, 0]
+        self.prev_truth_pose_2d = self.truth_pose_2d
+        self.odom_callback_count = 0
+        self.odom_cum_error = 0
+        self.odom_time_since = QElapsedTimer()
+        self.odom_time_since.start()
+        self.truth_time_since = QElapsedTimer()
+        self.truth_time_since.start()
 
         self.ui.draw_path_pushButton.clicked.connect(self.enable_draw_path)
         self.ui.draw_obstacle_pushButton.clicked.connect(self.enable_draw_obstacle)
         self.ui.clear_obstacles_pushButton.clicked.connect(self.clear_obstacles)
 
-        self.circle_radius = 500  # in pixels, default value, divided by scale = m
-        self.num_rays = 24
-        self.effective_range = math.pi
-        self.rays = [] # 2D array: [[x1, y1, x2, y2], ...]
-        self.point_cloud = [] # intersecting points from rays and obstacles
-        self.point_cloud_stdev = 0.01 / self.map_scene.scale # 0.01 m stdev err
-        self.build_map = True
-        self.estimation_mode = False # estimation_mode => using non-truth pose localization
-        # Optionally, load from params or config file
+        self.rays = []
+        self.point_cloud = []
 
         self.lidar_update_timer = QElapsedTimer()
-        self.lidar_update_interval = 200  # Set interval in milliseconds
         self.lidar_update_timer.start()
+
+        # Timer to call make_scene every 30 ms
+        self.scene_timer = QTimer(self)
+        self.scene_timer.timeout.connect(self.make_scene)
+        self.scene_timer.start(30)
 
     def odom_callback(self, msg):
         # Extract x, y, heading (imu) from Odometry message
-        self.odom_x = msg.pose.position.x / self.map_scene.scale + self.map_scene.center_x
-        self.odom_y = -msg.pose.position.y / self.map_scene.scale + self.map_scene.center_y
-        self.odom_angle = msg.pose.position.z
+        self.odom_pose_2d[0] = msg.pose.position.x / self.map_scene.scale + self.map_scene.center_x
+        self.odom_pose_2d[1] = -msg.pose.position.y / self.map_scene.scale + self.map_scene.center_y
+        self.odom_pose_2d[2] = msg.pose.position.z
+        
+        #print(f'ODOM  | since last: {self.odom_time_since.elapsed()} ')
+        self.odom_time_since.restart()
+        
 
     def listener_callback(self, data):
         for tfsf in data.transforms:
             if(tfsf.child_frame_id == 'rwd_bot'):
+                #print(f'TRUTH | since last: {self.truth_time_since.elapsed()} ')
+                self.truth_time_since.restart()
+
                 pose = tfsf.transform.translation
                 orientation = tfsf.transform.rotation
                 x = pose.x/self.map_scene.scale + self.map_scene.center_x
@@ -242,38 +281,9 @@ class Path_Tracking_Simulator(QDialog):
                 denominator = 1 - 2 * (q1**2 + q2**2)
                 angle = -math.pi/2 + math.atan2(2*numerator, denominator)
 
-                if(self.enable_repaint):
-                    if self.first_time == False:
-                        self.map_scene.clear()
-                    else:
-                        self.first_time = False
-                    self.map_scene.addPixmap(self.pixmap)
-                    self.map_scene.addLine(QLineF(250, 0, 250, 500), self.center_line) 
-                    self.map_scene.addLine(QLineF(0, 250, 500, 250), self.center_line)
-                    self.ui.map_graphicsView.setScene(self.map_scene)
+                self.prev_truth_pose_2d = self.truth_pose_2d
+                self.truth_pose_2d = [x, y, angle]
 
-                    # red path tracker
-                    self.map_scene.addEllipse(x - int(self.diameter),
-                                              y - int(self.diameter/2), 
-                                              self.diameter,
-                                              self.diameter,
-                                              self.vehicle_pen, QBrush(Qt.red))
-                    self.pixmap = self.ui.map_graphicsView.grab(QRect(QPoint(0,0),QSize(500, 500)))
-
-                    self.update_lidar_point_cloud(x, y, angle)
-
-                    # draw blue robot position + orientation
-                    self.draw_robot(x, y, angle, Qt.blue)
-
-                    # Draw odometry position in green if available
-                    if self.odom_x is not None and self.odom_y is not None and self.odom_angle is not None:
-
-                        print(f'odom error: {math.sqrt((self.odom_x - x)**2 + (self.odom_y - y)**2)} ')
-
-                        dark_green = QColor(Qt.darkGreen)
-                        dark_green.setAlpha(100)
-                        self.draw_robot(self.odom_x, self.odom_y, self.odom_angle - math.pi/2, dark_green)
-                            
     def update(self): 
         rclpy.spin_once(self.ros_node, timeout_sec=0)
 
@@ -316,9 +326,7 @@ class Path_Tracking_Simulator(QDialog):
                 self.pub.publish(path_pub) 
                 return
 
-        print(f"len ptp: {len(path_to_publish)}")
         path_to_publish_np = np.array(path_to_publish)
-        print(f"done!")
         path_pub = Float64MultiArray(data=np.ravel(path_to_publish_np))    
         self.pub.publish(path_pub)
 
@@ -330,6 +338,61 @@ class Path_Tracking_Simulator(QDialog):
 
     def clear_obstacles(self):
         self.map_scene.clear_obstacles()
+
+    def make_scene(self):
+        if self.enable_repaint:
+            if not self.estimation_mode:
+                x, y, angle = self.truth_pose_2d
+            else:
+                x, y, angle = self.odom_pose_2d
+            
+            if x is None or y is None or angle is None:
+                print(f"One or more of x, y, angle values are None.")
+                return
+
+            if self.first_time == False:
+                self.map_scene.clear()
+            else:
+                self.first_time = False
+                
+            self.map_scene.addPixmap(self.pixmap)
+            self.map_scene.addLine(QLineF(250, 0, 250, 500), self.center_line) 
+            self.map_scene.addLine(QLineF(0, 250, 500, 250), self.center_line)
+            self.ui.map_graphicsView.setScene(self.map_scene)
+
+            # red path tracker
+            self.map_scene.addEllipse(x - int(self.diameter),
+                                        y - int(self.diameter/2), 
+                                        self.diameter,
+                                        self.diameter,
+                                        self.vehicle_pen, QBrush(Qt.red))
+            self.pixmap = self.ui.map_graphicsView.grab(QRect(QPoint(0,0),QSize(500, 500)))
+
+            # Draw odometry position in green if available
+            if all(value is not None for value in self.odom_pose_2d):
+
+                err = math.sqrt((self.odom_pose_2d[0] - self.truth_pose_2d[0])**2 + 
+                                (self.odom_pose_2d[1] - self.truth_pose_2d[1])**2)
+                
+                self.odom_callback_count += 1
+                self.odom_cum_error += err
+                print(f'odom error: {err}, avg err {self.odom_cum_error/self.odom_callback_count}')
+
+                dark_green = QColor(Qt.darkGreen)
+                dark_green.setAlpha(100)
+                self.draw_robot(self.odom_pose_2d[0], self.odom_pose_2d[1], self.odom_pose_2d[2] - math.pi/2, dark_green)
+
+            self.point_cloud = self.update_lidar_point_cloud()
+            self.draw_point_cloud_estimate(x, y)
+
+            # draw blue robot position + orientation
+            self.draw_robot(self.truth_pose_2d[0], self.truth_pose_2d[1], self.truth_pose_2d[2], Qt.blue)
+            # Draw a circle of 500 pixel diameter around the true robot position
+            rad = self.circle_radius
+            self.map_scene.addEllipse(
+                self.truth_pose_2d[0] - rad, self.truth_pose_2d[1] - rad, 2*rad, 2*rad,
+                QPen(Qt.darkGray, 1, Qt.DashLine)
+            )
 
     def add_lidar_noise(self, point):
         if len(point) != 2:
@@ -345,18 +408,26 @@ class Path_Tracking_Simulator(QDialog):
 
         return [x_noisy, y_noisy]
 
-    def update_lidar_point_cloud(self, x, y, angle):
-        self.point_cloud.clear()
+    # returns relative points from pose estimate
+    def update_lidar_point_cloud(self):
+        
+        x, y, angle = self.truth_pose_2d
+        if x is None or y is None or angle is None:
+            print(f'Can not update point cloud when true robot pose has item(s) of None.')
+            return
+        
+        relative_point_cloud = []
         self.rays.clear()
 
         if (not self.build_map):
-            self.lidar_scene.clear()  # Clear the lidar view before updating
+            self.lidar_scene.clear()  # Clear the lidar view before updating, relative points
         
         # Only update lidar point cloud if the timer has reached the interval
         if self.lidar_update_timer.elapsed() >= self.lidar_update_interval:
             update_cloud = True
             self.lidar_update_timer.restart()
-        else: update_cloud = False
+        else: 
+            update_cloud = False
 
         # Draw lines every X degrees from robot position, first line in robot's heading - range/2
         for i in range(self.num_rays+1):
@@ -366,21 +437,35 @@ class Path_Tracking_Simulator(QDialog):
             y2 = y + self.circle_radius * math.sin(theta)
             pt = self.map_scene.get_single_ray_obstacle_intersections([x, y, x2, y2], self.map_scene.obstacles)
             semi_transparent_magenta = QColor(Qt.darkMagenta)
-            semi_transparent_magenta.setAlpha(50)
+            semi_transparent_magenta.setAlpha(40)
             if pt is None:
                 # draw lidar line 
                 self.map_scene.addLine(x, y, x2, y2, QPen(semi_transparent_magenta, 2))
             else:
-                # add noise to point
+                rel_pt = [pt[0] - x, pt[1] - y]
+                rel_pt = self.add_lidar_noise(rel_pt)
                 pt = self.add_lidar_noise(pt)
                 # draw lidar line to intersecting point
                 self.map_scene.addLine(x, y, pt[0], pt[1], QPen(semi_transparent_magenta, 2))
                 # Add the intersection point to the lidar view every self.lidar_update_interval ms
                 if update_cloud:
-                    self.point_cloud.append(pt)
-                    self.lidar_scene.addEllipse(pt[0] - 2, pt[1] - 2, 4, 4, QPen(Qt.red), QBrush(Qt.red))
+                    # self.point_cloud.append(rel_pt)
+                    relative_point_cloud.append(rel_pt)
+                    # draws true map from lidar
+                    if self.build_map:
+                        self.lidar_scene.addEllipse(pt[0] - 2, pt[1] - 2, 4, 4, QPen(Qt.black), QBrush(Qt.red))
             
             self.rays.append([x, y, x2, y2])
+        return relative_point_cloud
+    
+    def draw_point_cloud_estimate(self, x, y):
+        if len(self.point_cloud) == 0:
+            return
+        
+        for pt in self.point_cloud:
+            mapped_pt = [x + pt[0], y + pt[1]]
+            self.lidar_scene.addEllipse(mapped_pt[0] - 2, mapped_pt[1] - 2, 4, 4, QPen(Qt.red), QBrush(Qt.red))
+
 
     def draw_robot(self, x, y, angle, color):
         points = [[x - self.C*math.sin(angle), y - self.C*math.cos(angle)], 

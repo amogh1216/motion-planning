@@ -1,0 +1,34 @@
+# Parameters for the Path Tracking Simulator
+
+# Lidar parameters
+lidar:
+  num_rays: 24  # Number of lidar rays
+  effective_range: 3.14159  # Effective range in radians (e.g., pi for 180 degrees)
+  circle_radius: 75  # Radius in pixels for lidar range
+  point_cloud_stdev: 0.01  # Standard deviation for lidar noise in meters
+  update_interval: 200  # Lidar update interval in milliseconds
+  build_map: True # True: will build map based on localization False: get relative pt clouds
+  estimation_mode: True # True: use odom localization False: use true gazebo pose
+
+# Map parameters
+map:
+  scale: 0.02  # Meters per pixel
+  center_x: 250  # Center x-coordinate in pixels
+  center_y: 250  # Center y-coordinate in pixels
+
+# Robot parameters
+robot:
+  diameter: 2  # Diameter of the robot in pixels
+  length: 5  # Length of the robot in pixels
+
+# Path generation parameters
+path:
+  nodes_interval: 0.04  # Distance between nodes in meters
+  max_path_size: 10000  # Maximum number of nodes in the path
+
+# ROS parameters
+ros:
+  node_name: "path_tracking_sim"
+  path_topic: "/path"
+  pose_topic: "/get_pose_est"
+  tf_topic: "/world/my_world/pose/info"
