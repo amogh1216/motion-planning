@@ -24,7 +24,7 @@ class PurePursuitNode(Node):
         self.path_sub = self.create_subscription(
             Float64MultiArray, '/path', self.path_callback, 10)
         self.pose_sub = self.create_subscription(
-            PoseStamped, '/get_pose', self.pose_callback, 10)
+            PoseStamped, '/get_pose_est', self.pose_callback, 10)
         self.cmd_pub = self.create_publisher(
             TwistStamped, '/rwd_diff_controller/cmd_vel', 10)
         self.timer = self.create_timer(0.05, self.control_loop)

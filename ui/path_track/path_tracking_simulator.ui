@@ -149,6 +149,19 @@
     </rectf>
    </property>
   </widget>
+  <widget class="QPushButton" name="create_map_pushButton">
+   <property name="geometry">
+    <rect>
+     <x>500</x>
+     <y>520</y>
+     <width>111</width>
+     <height>30</height>
+    </rect>
+   </property>
+   <property name="text">
+    <string>Create Map</string>
+   </property>
+  </widget>
  </widget>
  <resources/>
  <connections>

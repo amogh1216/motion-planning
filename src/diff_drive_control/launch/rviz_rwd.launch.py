@@ -233,7 +233,7 @@ def generate_launch_description():
             robot_state_publisher_node,
             spawn_entity,
             diff_drive_base_controller_spawner,
-            rviz_node,
+            # rviz_node,
             joint_state_broadcaster_spawner,
             # pure_pursuit_node
         ] + gazebo

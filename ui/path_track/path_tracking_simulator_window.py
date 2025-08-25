@@ -65,11 +65,17 @@ class Ui_Form(object):
         self.clear_obstacles_pushButton.setGeometry(QtCore.QRect(10, 520, 141, 30))
         self.clear_obstacles_pushButton.setObjectName("clear_obstacles_pushButton")
 
+        # create map button
+        self.create_map_pushButton = QtWidgets.QPushButton(Form)
+        self.create_map_pushButton.setGeometry(QtCore.QRect(500, 520, 111, 30))
+        self.create_map_pushButton.setObjectName("create_map_pushButton")
+
         self.retranslateUi(Form)
         self.publish_path_pushButton.clicked.connect(Form.publish_path) # type: ignore
         self.draw_path_pushButton.clicked.connect(Form.enable_draw_path) # type: ignore
         self.draw_obstacle_pushButton.clicked.connect(Form.enable_draw_obstacle) # type: ignore
         self.clear_obstacles_pushButton.clicked.connect(Form.clear_obstacles) # type: ignore
+        self.create_map_pushButton.clicked.connect(Form.create_map) # type: ignore
         QtCore.QMetaObject.connectSlotsByName(Form)
 
     def retranslateUi(self, Form):
@@ -79,3 +85,4 @@ class Ui_Form(object):
         self.draw_path_pushButton.setText(_translate("Form", "Draw Path"))
         self.draw_obstacle_pushButton.setText(_translate("Form", "Draw Obstacle"))
         self.clear_obstacles_pushButton.setText(_translate("Form", "Clear Obstacles"))
+        self.create_map_pushButton.setText(_translate("Form", "Create Map"))

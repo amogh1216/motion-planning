@@ -2,10 +2,8 @@
 # -*- coding: utf-8 -*-
 
 import sys
-import os
 import math
 import numpy as np
-import cv2
 from pathlib import Path
 import yaml
 
@@ -21,6 +19,7 @@ from rclpy.node import Node
 from std_msgs.msg import Float64MultiArray
 from tf2_msgs.msg import TFMessage
 from geometry_msgs.msg import PoseStamped
+from std_msgs.msg import Bool
 
 class Map_GraphicsScene(QGraphicsScene):
     def __init__(self, parent=None):
@@ -63,6 +62,10 @@ class Map_GraphicsScene(QGraphicsScene):
             self.removeItem(item)
         self.obstacle_items.clear()
         self.obstacles.clear()
+
+    def redraw_obstacles(self):
+        for obstacle in self.obstacles:
+            line = self.addLine(QLineF(obstacle[0], obstacle[1], obstacle[2], obstacle[3]), self.obstacle_pen)
 
     def mouseMoveEvent(self,event):
         x = event.scenePos().x()
@@ -204,10 +207,13 @@ class Path_Tracking_Simulator(QDialog):
         # ROS parameters
         ros_params = params['ros']
         rclpy.init(args=None)
+        # ros2 param set /path_tracking_sim use_sim_time true
         self.ros_node = Node(ros_params['node_name'])
         self.pub = self.ros_node.create_publisher(Float64MultiArray, ros_params['path_topic'], 10)
-        self.sub = self.ros_node.create_subscription(TFMessage, ros_params['tf_topic'], self.listener_callback, 10)
-        self.sub_odom = self.ros_node.create_subscription(PoseStamped, ros_params['pose_topic'], self.odom_callback, 10)
+        self.pub_cloud = self.ros_node.create_publisher(Float64MultiArray, ros_params['point_cloud_topic'], 10)
+        self.pub_create_map = self.ros_node.create_publisher(Bool, ros_params['create_map_topic'], 10)
+        self.sub = self.ros_node.create_subscription(TFMessage, ros_params['tf_topic'], self.listener_callback, 10) # ~20 ms between updates
+        self.sub_odom = self.ros_node.create_subscription(PoseStamped, ros_params['pose_topic'], self.odom_callback, 10) # ~90 ms between updates
 
         # Path generation parameters
         path_params = params['path']
@@ -227,6 +233,7 @@ class Path_Tracking_Simulator(QDialog):
 
         self.first_time = True
         self.enable_repaint = False
+        self.has_created_map = False
         self.odom_pose_2d = [None, None, None]  # [x, y, angle]
         self.odom_pen = QPen(Qt.darkGreen)
         self.truth_pose_2d = [0, 0, 0]
@@ -266,7 +273,6 @@ class Path_Tracking_Simulator(QDialog):
     def listener_callback(self, data):
         for tfsf in data.transforms:
             if(tfsf.child_frame_id == 'rwd_bot'):
-                #print(f'TRUTH | since last: {self.truth_time_since.elapsed()} ')
                 self.truth_time_since.restart()
 
                 pose = tfsf.transform.translation
@@ -330,6 +336,10 @@ class Path_Tracking_Simulator(QDialog):
         path_pub = Float64MultiArray(data=np.ravel(path_to_publish_np))    
         self.pub.publish(path_pub)
 
+    def create_map(self):
+        self.has_created_map = True
+        self.pub_create_map.publish(Bool(data=True))
+
     def enable_draw_path(self):
         self.map_scene.set_mode('path')
 
@@ -340,7 +350,7 @@ class Path_Tracking_Simulator(QDialog):
         self.map_scene.clear_obstacles()
 
     def make_scene(self):
-        if self.enable_repaint:
+        if self.enable_repaint or self.has_created_map:
             if not self.estimation_mode:
                 x, y, angle = self.truth_pose_2d
             else:
@@ -352,6 +362,7 @@ class Path_Tracking_Simulator(QDialog):
 
             if self.first_time == False:
                 self.map_scene.clear()
+                self.map_scene.redraw_obstacles()
             else:
                 self.first_time = False
                 
@@ -360,9 +371,9 @@ class Path_Tracking_Simulator(QDialog):
             self.map_scene.addLine(QLineF(0, 250, 500, 250), self.center_line)
             self.ui.map_graphicsView.setScene(self.map_scene)
 
-            # red path tracker
-            self.map_scene.addEllipse(x - int(self.diameter),
-                                        y - int(self.diameter/2), 
+            # red path tracker [truth]
+            self.map_scene.addEllipse(self.truth_pose_2d[0] - int(self.diameter),
+                                        self.truth_pose_2d[1] - int(self.diameter/2), 
                                         self.diameter,
                                         self.diameter,
                                         self.vehicle_pen, QBrush(Qt.red))
@@ -376,7 +387,7 @@ class Path_Tracking_Simulator(QDialog):
                 
                 self.odom_callback_count += 1
                 self.odom_cum_error += err
-                print(f'odom error: {err}, avg err {self.odom_cum_error/self.odom_callback_count}')
+                # print(f'odom error: {err}, avg err {self.odom_cum_error/self.odom_callback_count}')
 
                 dark_green = QColor(Qt.darkGreen)
                 dark_green.setAlpha(100)
@@ -417,6 +428,7 @@ class Path_Tracking_Simulator(QDialog):
             return
         
         relative_point_cloud = []
+        rel_pt_cloud_to_pub = []
         self.rays.clear()
 
         if (not self.build_map):
@@ -439,23 +451,35 @@ class Path_Tracking_Simulator(QDialog):
             semi_transparent_magenta = QColor(Qt.darkMagenta)
             semi_transparent_magenta.setAlpha(40)
             if pt is None:
-                # draw lidar line 
-                self.map_scene.addLine(x, y, x2, y2, QPen(semi_transparent_magenta, 2))
+                # draw lidar line
+                if i == self.num_rays/2:
+                    self.map_scene.addLine(x, y, x2, y2, QPen(Qt.black, 2))
+                else: self.map_scene.addLine(x, y, x2, y2, QPen(semi_transparent_magenta, 2))
             else:
-                rel_pt = [pt[0] - x, pt[1] - y]
+                rel_pt = [(pt[0] - x), (pt[1] - y)]
                 rel_pt = self.add_lidar_noise(rel_pt)
+                rel_pt = [rel_pt[0] * self.map_scene.scale, rel_pt[1] * self.map_scene.scale]
+
                 pt = self.add_lidar_noise(pt)
                 # draw lidar line to intersecting point
-                self.map_scene.addLine(x, y, pt[0], pt[1], QPen(semi_transparent_magenta, 2))
+                if i == self.num_rays/2:
+                    self.map_scene.addLine(x, y, pt[0], pt[1], QPen(Qt.black, 2))
+                else: 
+                    self.map_scene.addLine(x, y, pt[0], pt[1], QPen(semi_transparent_magenta, 2))
                 # Add the intersection point to the lidar view every self.lidar_update_interval ms
                 if update_cloud:
-                    # self.point_cloud.append(rel_pt)
                     relative_point_cloud.append(rel_pt)
+                    # filter point cloud: only get point right in front of robot (SLAM purposes, create_map node)
+                    if (i == self.num_rays/2): rel_pt_cloud_to_pub.append(rel_pt)
                     # draws true map from lidar
                     if self.build_map:
-                        self.lidar_scene.addEllipse(pt[0] - 2, pt[1] - 2, 4, 4, QPen(Qt.black), QBrush(Qt.red))
+                        self.lidar_scene.addEllipse(pt[0] - 2, pt[1] - 2, 4, 4, QPen(Qt.red), QBrush(Qt.red))
             
             self.rays.append([x, y, x2, y2])
+
+        if update_cloud:
+            # print(f'cloud: {np.ravel(np.array(relative_point_cloud))}')
+            self.pub_cloud.publish(Float64MultiArray(data=np.ravel(np.array(rel_pt_cloud_to_pub))))
         return relative_point_cloud
     
     def draw_point_cloud_estimate(self, x, y):
@@ -463,9 +487,8 @@ class Path_Tracking_Simulator(QDialog):
             return
         
         for pt in self.point_cloud:
-            mapped_pt = [x + pt[0], y + pt[1]]
-            self.lidar_scene.addEllipse(mapped_pt[0] - 2, mapped_pt[1] - 2, 4, 4, QPen(Qt.red), QBrush(Qt.red))
-
+            mapped_pt = [x + (pt[0] / self.map_scene.scale), y + pt[1]/self.map_scene.scale]
+            self.lidar_scene.addEllipse(mapped_pt[0] - 2, mapped_pt[1] - 2, 4, 4, QPen(Qt.black), QBrush(Qt.black))
 
     def draw_robot(self, x, y, angle, color):
         points = [[x - self.C*math.sin(angle), y - self.C*math.cos(angle)], 

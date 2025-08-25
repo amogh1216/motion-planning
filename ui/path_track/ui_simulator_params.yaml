@@ -7,7 +7,7 @@ lidar:
   circle_radius: 75  # Radius in pixels for lidar range
   point_cloud_stdev: 0.01  # Standard deviation for lidar noise in meters
   update_interval: 200  # Lidar update interval in milliseconds
-  build_map: True # True: will build map based on localization False: get relative pt clouds
+  build_map: True # True: will build map based on odom localization False: get relative pt clouds
   estimation_mode: True # True: use odom localization False: use true gazebo pose
 
 # Map parameters
@@ -32,3 +32,5 @@ ros:
   path_topic: "/path"
   pose_topic: "/get_pose_est"
   tf_topic: "/world/my_world/pose/info"
+  point_cloud_topic: "/point_cloud"
+  create_map_topic: "/create_map"
