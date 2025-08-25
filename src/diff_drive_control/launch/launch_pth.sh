@@ -10,5 +10,3 @@ gnome-terminal \
   --tab --title="Localization" -e "bash -c 'sleep 5; ros2 run diff_drive_control localization_node; ros2 param load 
                         /localization_node src/diff_drive_control/config/config.yaml; exec bash'" \
   --tab --title="Map Creation" -e "bash -c 'sleep 5; ros2 run diff_drive_control create_map_node; exec bash'"
-  # --tab --title="Path Following" -e "bash -c 'sleep 5; ros2 run diff_drive_control pure_pursuit.py; exec bash'"
-

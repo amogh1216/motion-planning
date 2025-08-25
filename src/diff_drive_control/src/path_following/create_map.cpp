@@ -105,7 +105,6 @@ private:
                 // problem: angle drift massive
                 RCLCPP_INFO(this->get_logger(), "angle diff: %.2f", angle_diff);
 
-                // Consider points within +/- 30 degrees (0.523 rad) in front and within threshold distance
                 if (distance < thresh)
                 {
                     obstacle_in_front = true;
